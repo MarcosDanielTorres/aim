@@ -1,0 +1,2 @@
+CHECK IF GLM IS NEEDED NOW THAT VULKAN HAS IT. WHAT VERSION DOES IT HAVE
+add thirdparty dependency versions in the readme
