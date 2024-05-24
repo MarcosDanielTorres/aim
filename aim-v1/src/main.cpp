@@ -1,3 +1,7 @@
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
+#include "spdlog/spdlog.h"
+#include "spdlog/cfg/env.h"
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -18,6 +22,9 @@
 #include <array>
 #include <optional>
 #include <set>
+
+
+
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -1257,7 +1264,16 @@ private:
 
 int main() {
     HelloTriangleApplication app;
+spdlog::cfg::load_env_levels();
 
+    SPDLOG_DEBUG("Some debug message with arg: {}", 1);
+SPDLOG_INFO("Some debug message with arg: {}", 1);
+
+    SPDLOG_WARN("Easy padding in numbers like {:08d}", 12);
+    SPDLOG_CRITICAL("Support for int: {0:d};  hex: {0:x};  oct: {0:o}; bin: {0:b}", 42);
+    SPDLOG_INFO("Support for floats {:03.2f}", 1.23456);
+    SPDLOG_INFO("Positional args are {1} {0}..", "too", "supported");
+    SPDLOG_INFO("{:<30}", "left aligned");
     try {
         app.run();
     } catch (const std::exception& e) {

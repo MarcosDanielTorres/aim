@@ -6,7 +6,9 @@ set GLFW_LIB=glfw3.lib
 
 REM Define include paths
 set INCLUDE_PATHS=/I %VULKAN_SDK%\Include ^
-                  /I ..\thirdparty\glfw-3.4.bin.WIN64\include
+                  /I ..\thirdparty\glfw-3.4.bin.WIN64\include ^
+		  /I ..\thirdparty\glm-1.0.1 ^
+		  /I ..\thirdparty\spdlog-1.14.1
                 
 
 REM Define library paths
