@@ -33,6 +33,10 @@ set LIBS=%VULKAN_LIB% ^
          vcruntime.lib
 
 REM Compile the program
+if not exist "..\build\" (
+    mkdir "..\build\"
+    echo Directory created: ..\build\
+)
 pushd ..\build\
 cl /EHsc /Zi /std:c++17 /MD ..\src\main.cpp %INCLUDE_PATHS% /link %LIB_PATHS% %LIBS%
 endlocal
