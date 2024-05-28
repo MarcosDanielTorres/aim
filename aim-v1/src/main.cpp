@@ -1,6 +1,6 @@
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
-#include "spdlog/spdlog.h"
-#include "spdlog/cfg/env.h"
+//#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
+//#include "spdlog/spdlog.h"
+//#include "spdlog/cfg/env.h"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -24,6 +24,7 @@
 #include <set>
 
 
+#include "core/logger/logger.h"
 
 
 const uint32_t WIDTH = 800;
@@ -39,12 +40,13 @@ const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-#ifdef NDEBUG
-const bool enableValidationLayers = false;
-#else
-const bool enableValidationLayers = true;
-#endif
+//#ifdef NDEBUG
+//const bool enableValidationLayers = false;
+//#else
+//const bool enableValidationLayers = true;
+//#endif
 
+const bool enableValidationLayers = true;
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
     auto func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
     if (func != nullptr) {
@@ -341,7 +343,7 @@ private:
     void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) {
         createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         createInfo.pfnUserCallback = debugCallback;
     }
@@ -1256,24 +1258,83 @@ private:
     }
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
-        std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+      //switch(messageSeverity) {
+      //case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+      //	//INFO("%s %s", messageType, pCallbackData->pMessage);
+      //	  printf("%s %s", messageType, pCallbackData->pMessage);
+      //	  break;
+      //case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+      //	// DEBUG("%s %s", messageType, pCallbackData->pMessage);
+      //	  printf("%s %s", messageType, pCallbackData->pMessage);
+      //	  break;
+      //case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+      //	// WARN("%s %s", messageType, pCallbackData->pMessage);
+      //	  printf("%s %s", messageType, pCallbackData->pMessage);
+      //	  break;
+      //case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+      //	//FATAL("%s %s", messageType, pCallbackData->pMessage);
+      //	  printf("%s %s", messageType, pCallbackData->pMessage);
+      //	  break;
+      //}
+    const char* type;
+    switch (messageType) {
+        case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
+            type = "GENERAL";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
+            type = "VALIDATION";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
+            type = "PERFORMANCE";
+            break;
+        default:
+            type = "UNKNOWN";
+            break;
+    }
 
+      
+	     const char* severity;
+	  switch (messageSeverity) {
+	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+		  DEBUG("%s %s", type, pCallbackData->pMessage);
+	          break;
+	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+		  INFO("%s %s", type, pCallbackData->pMessage);
+	          break;
+	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+		  WARN("%s %s", type, pCallbackData->pMessage);
+	          break;
+	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+		  ERROR("%s %s", type, pCallbackData->pMessage);
+	          break;
+	      default:
+	          severity = "UNKNOWN";
+		  WARN("%s %s %s", severity, type, pCallbackData->pMessage);
+	          break;
+	  }
         return VK_FALSE;
     }
 };
 
 int main() {
-    HelloTriangleApplication app;
-spdlog::cfg::load_env_levels();
+  HelloTriangleApplication app;
+  //spdlog::cfg::load_env_levels();
 
-    SPDLOG_DEBUG("Some debug message with arg: {}", 1);
-SPDLOG_INFO("Some debug message with arg: {}", 1);
+  TRACE("Esta es una traza");
+  INFO("Esto es un info %d", 3232);
+  DEBUG("");
+  WARN("Esto es un warn %d, %s, %c", 321, "jaja", 'c');
+  FATAL("Application Crashed!");
+  ERROR("Esto es un error, status code: %d", 404);
+    
+ //SPDLOG_DEBUG("Some debug message with arg: {}", 1);
+ //SPDLOG_INFO("Some debug message with arg: {}", 1);
 
-    SPDLOG_WARN("Easy padding in numbers like {:08d}", 12);
-    SPDLOG_CRITICAL("Support for int: {0:d};  hex: {0:x};  oct: {0:o}; bin: {0:b}", 42);
-    SPDLOG_INFO("Support for floats {:03.2f}", 1.23456);
-    SPDLOG_INFO("Positional args are {1} {0}..", "too", "supported");
-    SPDLOG_INFO("{:<30}", "left aligned");
+ //SPDLOG_WARN("Easy padding in numbers like {:08d}", 12);
+ //SPDLOG_CRITICAL("Support for int: {0:d};  hex: {0:x};  oct: {0:o}; bin: {0:b}", 42);
+ //SPDLOG_INFO("Support for floats {:03.2f}", 1.23456);
+ //SPDLOG_INFO("Positional args are {1} {0}..", "too", "supported");
+ //SPDLOG_INFO("{:<30}", "left aligned");
     try {
         app.run();
     } catch (const std::exception& e) {
