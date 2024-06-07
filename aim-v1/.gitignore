@@ -1,4 +1,4 @@
 /build/**/*
-/assets/shaders/*.spv
-/thirdparty/**/*
-/src/TAGS
+/engine/assets/shaders/*.spv
+/engine/thirdparty/**/*
+/engine/src/TAGS
