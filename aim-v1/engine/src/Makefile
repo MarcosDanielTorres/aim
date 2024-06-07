@@ -1,8 +1,8 @@
 r:
-	..\build\main.exe
+	..\..\build\main.exe
 b:
 	.\build.bat
 br:
 	make b && make r
 c:
-	del ..\build\**
+	del ..\..\build\**
