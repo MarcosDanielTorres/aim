@@ -1,6 +1,7 @@
 #pragma once
 #include <iostream>
 #include "game.h"
+#include "application.h"
 
 
 extern game create_game();
@@ -8,9 +9,7 @@ extern game create_game();
 int main() {
   game game_inst = create_game();
 
-  while(true) {
-    printf("%s\n", game_inst.app_config.name);
-    game_inst.resize(4, 5);
-    printf("322\n");
-  }
+  HelloTriangleApplication app;
+
+  app.run(&game_inst);
 }

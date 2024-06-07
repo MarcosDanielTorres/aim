@@ -7,13 +7,24 @@ if not exist "..\..\build\" (
 pushd ..\..\build\
 
 REM Define include paths
-set INCLUDE_PATHS=/I ..\engine\src\
+set INCLUDE_PATHS=/I ..\engine\src\ ^
+                  /I %VULKAN_SDK%\Include ^
+                  /I ..\engine\thirdparty\glfw-3.4.bin.WIN64\include ^
+                  /I ..\engine\thirdparty\glm-1.0.1 ^
+                  /I ..\engine\thirdparty\spdlog-1.14.1
+
+
 
 REM Define libraries names
 set ENGINE_LIB=engine.lib
+set VULKAN_LIB=vulkan-1.lib
+set GLFW_LIB=glfw3.lib
+
 
 REM Define library paths
-set LIB_PATHS=/LIBPATH:..\build\
+set LIB_PATHS= /LIBPATH:%VULKAN_SDK%\Lib ^
+              /LIBPATH:..\engine\thirdparty\glfw-3.4.bin.WIN64\lib-vc2022
+
 
 REM Get source files
 SetLocal EnableDelayedExpansion
@@ -24,6 +35,8 @@ FOR /r ..\juego\src\ %%f in (*.cpp) do (
 
 REM Define libraries
 set LIBS=%ENGINE_LIB% ^
+         %VULKAN_LIB% ^
+         %GLFW_LIB% ^
          user32.lib ^
          gdi32.lib ^
          shell32.lib ^
