@@ -38,10 +38,13 @@ void HelloTriangleApplication::initWindow(app_config app_config) {
         createSyncObjects();
     }
 
-    void HelloTriangleApplication::mainLoop() {
+    void HelloTriangleApplication::mainLoop(game* game_inst) {
         while (!glfwWindowShouldClose(window)) {
+	  
             glfwPollEvents();
             drawFrame();
+	    printf("%d\n", game_inst->app_config.width);
+	    game_inst->update(game_inst, 1.0f);
         }
 
         vkDeviceWaitIdle(device);
@@ -107,7 +110,7 @@ void HelloTriangleApplication::initWindow(app_config app_config) {
     void HelloTriangleApplication::run(game* game_inst) {
         initWindow(game_inst->app_config);
         initVulkan();
-        mainLoop();
+        mainLoop(game_inst);
         cleanup();
     }
 
@@ -1070,9 +1073,8 @@ void HelloTriangleApplication::initWindow(app_config app_config) {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
         if (!file.is_open()) {
-	  std::cout <<filename << std::endl;
-	  FATAL("No se pudo abrir el archivo");
-            throw std::runtime_error("failed to open file!");
+	  FATAL("No se pudo abrir el archivo: %s", filename.c_str());
+	  return std::vector<char>();
         }
 
         size_t fileSize = (size_t) file.tellg();

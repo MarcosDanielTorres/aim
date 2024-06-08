@@ -22,7 +22,7 @@
 
 
 #include "core/logger/logger.h"
-#include "game.h"
+#include "game_types.h"
 #include "defines.h"
 //#include "entry.h" // si dejo esto aca no compila application.cpp
 
@@ -201,7 +201,7 @@ private:
 
     void initVulkan();
 
-    void mainLoop();
+    void AIM_API mainLoop(game* game_inst);
 
     void cleanupSwapChain();
 

@@ -23,7 +23,7 @@ set GLFW_LIB=glfw3.lib
 
 REM Define library paths
 set LIB_PATHS= /LIBPATH:%VULKAN_SDK%\Lib ^
-              /LIBPATH:..\engine\thirdparty\glfw-3.4.bin.WIN64\lib-vc2022
+              /LIBPATH:..\engine\thirdparty\glfw-3.4.bin.WIN64\lib-vc2022 
 
 
 REM Get source files
@@ -36,12 +36,7 @@ FOR /r ..\juego\src\ %%f in (*.cpp) do (
 REM Define libraries
 set LIBS=%ENGINE_LIB% ^
          %VULKAN_LIB% ^
-         %GLFW_LIB% ^
-         user32.lib ^
-         gdi32.lib ^
-         shell32.lib ^
-         msvcrt.lib ^
-         vcruntime.lib
+         %GLFW_LIB%
 
 REM Compile the program
 set OUTPUT_NAME=juego.exe
