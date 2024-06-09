@@ -1,4 +1,5 @@
 #include <game_types.h>
+#include <core/logger/logger.h>
 
 //bool game::init(){
 //  printf("Im in init\n");
@@ -28,7 +29,7 @@ bool initialize(game* game_inst){
 }
 
 bool update(game* game_inst, float delta_time){
-  printf("Im in update %f\n", delta_time);
+  INFO("Im in update %f\n", delta_time);
   return true;
 }
 
