@@ -28,7 +28,9 @@ FOR /r ..\sandbox\src\ %%f in (*.cpp) do (
     SET cFilenames=!cFilenames! "%%f"
 )
 
-set LIBS=user32.lib ^
+set LIBS=SDL2.lib ^
+         SDL2main.lib ^
+	 user32.lib ^
          gdi32.lib ^
          shell32.lib ^
          msvcrt.lib ^
