@@ -17,8 +17,8 @@ set INCLUDE_PATHS=/I ..\engine\src ^
 
 
 REM Define library paths
-set LIB_PATHS=
-	      /LIBPATH:..\engine\thirdparty\SDL\lib ^
+set LIB_PATHS=/LIBPATH:%VULKAN_SDK%/Lib ^
+	      /LIBPATH:..\engine\thirdparty\SDL\lib
 
 
 REM Get source files
@@ -40,6 +40,6 @@ set LIBS= SDL2.lib ^
 
 REM Compile the program
 set OUTPUT_NAME=engine
-cl /EHsc /LD /DAIM_EXPORTS /Zi /std:c++20 /MD /Fe%OUTPUT_NAME% %cFilenames% %INCLUDE_PATHS% /link /SUBSYSTEM:CONSOLE /LIBPATH:..\engine\thirdparty\SDL\lib /LIBPATH:%VULKAN_SDK%/Lib %LIBS%
+cl /EHsc /LD /DAIM_EXPORTS /Zi /std:c++20 /MD /Fe%OUTPUT_NAME% %cFilenames% %INCLUDE_PATHS% /link %LIB_PATHS% %LIBS%
 endlocal
          

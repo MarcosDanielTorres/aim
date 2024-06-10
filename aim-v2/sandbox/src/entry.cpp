@@ -2,7 +2,7 @@
 #include "game.h"
 
 bool create_game(game* game_inst) {
-  game_inst->app_config.name = "Conchudos";
+  game_inst->app_config.name = "La verdad era todo culpa del bat";
   game_inst->app_config.width = 800;
   game_inst->app_config.height = 600;
   game_inst->init = game_init;

@@ -1,7 +1,7 @@
 #include "game.h"
 
 bool game_init(game* game_inst) {
-  INFO("Im in init function");
+  INFO("Im in init function!");
   return true;
 }
 
