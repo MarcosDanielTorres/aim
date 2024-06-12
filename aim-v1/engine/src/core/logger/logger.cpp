@@ -5,7 +5,7 @@
 #include "logger.h"
 
 
-void log_output(LOG_LEVEL log_level, const char* msg, const char* file, int line, ...) {
+void aim_log_output(LOG_LEVEL log_level, const char* msg, const char* file, int line, ...) {
   const char* log_levels[6] = {
     "TRACE",
     "INFO",
