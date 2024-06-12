@@ -1,51 +1,62 @@
 #include "platform.h"
+//#include <ctime>
+#include <chrono>
+#include <thread>
 
-static platform_state* plat_state = NULL;
+int platform_state::init(app_config config) {
+  SDL_Init(SDL_INIT_VIDEO);
 
-int platform_init(app_config config) {
-    SDL_Init(SDL_INIT_VIDEO);
+  SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
-   SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+  SDL_Window* window = SDL_CreateWindow(
+    config.name,
+    SDL_WINDOWPOS_UNDEFINED,
+    SDL_WINDOWPOS_UNDEFINED,
+    config.width,
+    config.height,
+    window_flags);
 
-   SDL_Window* window = SDL_CreateWindow(
-       config.name,
-       SDL_WINDOWPOS_UNDEFINED,
-       SDL_WINDOWPOS_UNDEFINED,
-       config.width,
-       config.height,
-       window_flags);
+  // Initialize platform_state members
+  state.window = window;
+    
+  INFO("SDL Window intialized!");
+  renderer_inst.init(state.window);
 
-	SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, 0);
-	if (!renderer) {
-		return -1;
-	}
-
-	INFO("SDL Renderer initialized!");
-
-   // Allocate memory for plat_state
-    plat_state = (platform_state*)malloc(sizeof(platform_state));
-    if (!plat_state) {
-        fprintf(stderr, "Error allocating memory for plat_state\n");
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return -1;
-    }
-
-    // Initialize plat_state members
-    plat_state->state.window = window;
-    plat_state->state.renderer = renderer;
-
-
-	INFO("SDL Window intialized!");
-	return 0;
+  INFO("SDL Window intialized!");
+  return 0;
 }
 
-void platform_run(game game_inst) {
-     while(true){
-	SDL_SetRenderDrawColor(plat_state->state.renderer, 255, 21, 21, 255);
-	SDL_RenderClear(plat_state->state.renderer);
-	SDL_RenderPresent(plat_state->state.renderer);
+void platform_state::run(bool* is_running) {
+  SDL_Event e;
+  bool bQuit = false;
+  bool stop_rendering = false;
+
+  while (!bQuit){
+    while (SDL_PollEvent(&e) != 0) {
+      if (e.type == SDL_QUIT) {
+	bQuit = true;
+      }
+
+      if (e.type == SDL_WINDOWEVENT) {
+	if (e.type == SDL_WINDOWEVENT_MINIMIZED) {
+	  stop_rendering = true;
+	}
+
+	if (e.type == SDL_WINDOWEVENT_MINIMIZED) {
+	  stop_rendering = false;
+	}
+      }
     }
-  
+    if (stop_rendering) {
+      // throttle the speed to avoid the endless spinning
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      continue;
+    }
+    renderer_inst.render();
+  }
+}
+
+void platform_state::cleanup(){
+  renderer_inst.cleanup();
+  SDL_DestroyWindow(state.window);
 }

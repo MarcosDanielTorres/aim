@@ -39,5 +39,5 @@ set LIBS=SDL2.lib ^
 
 REM Compile the program
 set OUTPUT_NAME=sandbox
-cl /EHsc /Zi /std:c++20 /MD /Fe%OUTPUT_NAME% %cFilenames% %INCLUDE_PATHS% /link engine.lib %LIB_PATHS% %LIBS%
+cl /EHsc /Zi /RTC1 /std:c++20 /MD /Fe%OUTPUT_NAME% %cFilenames% %INCLUDE_PATHS% /link engine.lib %LIB_PATHS% %LIBS%
 endlocal

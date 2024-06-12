@@ -40,6 +40,6 @@ set LIBS= SDL2.lib ^
 
 REM Compile the program
 set OUTPUT_NAME=engine
-cl /EHsc /LD /DAIM_EXPORTS /Zi /std:c++20 /MD /Fe%OUTPUT_NAME% %cFilenames% %INCLUDE_PATHS% /link %LIB_PATHS% %LIBS%
+cl /EHsc /RTC1 /LD /DAIM_EXPORTS /Zi /std:c++20 /MD /Fe%OUTPUT_NAME% %cFilenames% %INCLUDE_PATHS% /link %LIB_PATHS% %LIBS%
 endlocal
          
