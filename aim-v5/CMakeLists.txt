@@ -11,6 +11,8 @@ set(GLFW_INSTALL OFF CACHE BOOL "")
 
 add_subdirectory(thirdparty/glfw-3.4)
 include_directories(thirdparty/glfw-3.4/include)
+include_directories(thirdparty/imgui)
+
 
 add_subdirectory(engine)
 add_subdirectory(sandbox)

@@ -39,7 +39,7 @@ void HelloTriangleApplication::initWindow(app_config app_config) {
     }
 
     void HelloTriangleApplication::mainLoop(game* game_inst) {
-      game_inst->initialize(game_inst);
+      game_inst->init(game_inst);
         while (!glfwWindowShouldClose(window)) {
 	  
             glfwPollEvents();
