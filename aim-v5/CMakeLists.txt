@@ -13,8 +13,8 @@ add_subdirectory(thirdparty/glfw-3.4)
 include_directories(thirdparty/glfw-3.4/include)
 
 
-add_subdirectory(thirdparty)
-include_directories(thirdparty/imgui)
+add_subdirectory(thirdparty/imgui-1.90.8)
+include_directories(thirdparty/imgui-1.90.8)
 
 add_subdirectory(engine)
 add_subdirectory(sandbox)

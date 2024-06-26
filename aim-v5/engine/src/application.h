@@ -26,7 +26,6 @@
 #include "defines.h"
 //#include "entry.h" // si dejo esto aca no compila application.cpp
 
-
 ////////////////////////////////////////////////////////////////////
 
 struct game_state {

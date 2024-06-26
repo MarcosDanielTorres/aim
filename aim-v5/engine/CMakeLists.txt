@@ -12,7 +12,7 @@ include_directories(../thirdparty/imgui)
 link_directories(../thirdparty/imgui)
 
 
-file(GLOB_RECURSE SRC_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.c??)
+file(GLOB_RECURSE SRC_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.c?? *.c)
 file(GLOB_RECURSE HEADER_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.h)
 
 add_library(Engine SHARED ${SRC_FILES} ${HEADER_FILES})
@@ -30,7 +30,7 @@ endif()
 set(Vulkan_INCLUDE_DIR $ENV{VULKAN_SDK}/Include)
 include_directories(${Vulkan_INCLUDE_DIR})
 
-target_link_libraries(Engine PUBLIC glfw Vulkan::Vulkan imgui)
+target_link_libraries(Engine PUBLIC glfw opengl32 Vulkan::Vulkan imgui)
 
 
 
