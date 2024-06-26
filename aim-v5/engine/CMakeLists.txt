@@ -30,11 +30,8 @@ endif()
 set(Vulkan_INCLUDE_DIR $ENV{VULKAN_SDK}/Include)
 include_directories(${Vulkan_INCLUDE_DIR})
 
-target_link_libraries(Engine PUBLIC glfw Vulkan::Vulkan)
+target_link_libraries(Engine PUBLIC glfw Vulkan::Vulkan imgui)
 
-# This should be PUBLIC but it seams that cmake doesn't work when you dont build the .lib yourself
-target_link_libraries(Engine PRIVATE imgui)
-# So I do this and then in `Sandbox` I point to this imgui.lib
 
 
 
