@@ -6,6 +6,7 @@ include(../CommonMacros.txt)
 
 SETUP_APP(Sandbox "")
 include_directories(../engine)
+include_directories(../engine/jaja)
 
 message(STATUS "CMAKE_SOURCE_DIR: ${CMAKE_SOURCE_DIR}")
 

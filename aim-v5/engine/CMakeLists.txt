@@ -11,9 +11,12 @@ include_directories(../thirdparty/glfw-3.4/include)
 include_directories(../thirdparty/imgui)
 link_directories(../thirdparty/imgui)
 
+include_directories(./jaja)
+
 
 file(GLOB_RECURSE SRC_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.c?? *.c)
 file(GLOB_RECURSE HEADER_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.h)
+
 
 add_library(Engine SHARED ${SRC_FILES} ${HEADER_FILES})
 

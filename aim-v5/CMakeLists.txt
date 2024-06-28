@@ -11,6 +11,7 @@ set(GLFW_INSTALL OFF CACHE BOOL "")
 
 add_subdirectory(thirdparty/glfw-3.4)
 include_directories(thirdparty/glfw-3.4/include)
+add_compile_definitions("${CMAKE_PROJET_NAME}" PUBLIC AIM_ENGINE_ASSETS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/engine/assets/")
 
 
 add_subdirectory(thirdparty/imgui-1.90.8)
