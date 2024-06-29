@@ -18,6 +18,22 @@ file(GLOB_RECURSE SRC_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOUR
 file(GLOB_RECURSE HEADER_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.h)
 
 
+
+# Set the assets directory
+set(ASSETS_DIR "${CMAKE_SOURCE_DIR}/engine/assets")
+message("Engine assets path: " ${ASSETS_DIR})
+# Include all asset files
+file(GLOB_RECURSE ASSETS_FILES "${ASSETS_DIR}/*")
+
+# Add the assets to the project, so they appear in the IDE
+source_group(TREE "${ASSETS_DIR}" PREFIX "Assets" FILES ${ASSETS_FILES})
+
+# This line ensures that the assets are shown in IDE, but not compiled
+add_custom_target(Assets SOURCES ${ASSETS_FILES})
+
+
+
+
 add_library(Engine SHARED ${SRC_FILES} ${HEADER_FILES})
 
 set_property(TARGET Engine PROPERTY CXX_STANDARD 20)
