@@ -51,6 +51,7 @@ DONE:
 #include "learnopengl/camera.h"
 #include "learnopengl/shader_m.h"
 #include "learnopengl/camera.h"
+#include "learnopengl/fps_camera.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -58,6 +59,9 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 
 static bool gui_mode = false;
+static bool wireframe_mode = false;
+static bool fps_mode = false;
+static float gravity = 2.2;
 
 struct Transform3D {
 	glm::vec3 pos;
@@ -76,11 +80,15 @@ struct Model {
 
 
 // settings
-const unsigned int SCR_WIDTH = 1700;
-const unsigned int SCR_HEIGHT = 900;
+//const unsigned int SCR_WIDTH = 1700;
+//const unsigned int SCR_HEIGHT = 900;
+
+const unsigned int SCR_WIDTH = 1920;
+const unsigned int SCR_HEIGHT = 1080;
 
 // camera
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+Camera camera(glm::vec3(5.0f, 4.0f, 8.0f));
+FPSCamera fps_camera(glm::vec3(0.0f, 8.0f, 3.0f));
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
@@ -95,9 +103,18 @@ glm::vec3 light_scale(0.2f);
 
 // model
 glm::vec3 model_pos(0.0f, 0.0f, 0.0f);
-glm::vec3 model_scale(1.0f);
+glm::vec3 model_scale(10.0f, 1.0f, -10.0f);
+glm::vec3 model_bounding_box(model_scale * 1.0f); // este esta "mal" aca la camara tiene cierta altura pero no es la colision posta con el piso.
+//glm::vec3 model_bounding_box(model_scale / 2.0f); // esta seria la correcta pasa que ahi me queda el centro de la camara donde termina el piso entonces queda la mitad
+// dentro del piso y la mitad arriba.
+
+//glm::vec3 model_scale(0.5f, 5.0f, 1.0f);
 
 
+// agregar fps done
+// agregar toggle between `camera` and `fps_camera` a imgui done
+// agregar wireframe rapido done
+// ver rapidisimo a la velocidad del diablo a donde mierda esta la cabeza de la fps camera done
 
 extern bool create_game(game* game_inst);
 
@@ -193,6 +210,21 @@ struct TestingRenderer {
 
 };
 
+void update_physics(float delta_time) {
+	if (fps_mode) {
+		// check collision
+		if (model_bounding_box.y >= fps_camera.Position.y) {
+			fps_camera.Position.y = model_bounding_box.y;
+			std::cout << "Colission detected at: " << model_bounding_box.y << std::endl;
+		}
+		else {
+
+			fps_camera.Position.y -= gravity * delta_time;
+		}
+	}
+}
+
+
 int main() {
 	game game_inst;
 	create_game(&game_inst);
@@ -206,7 +238,7 @@ int main() {
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	//GLFWwindow* window = glfwCreateWindow(game_inst.app_config.width, game_inst.app_config.height, game_inst.app_config.name, NULL, NULL);
-	GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfwGetPrimaryMonitor(), NULL);
 	INFO("GLFW window created successfully!");
 	if (window == NULL)
 	{
@@ -253,52 +285,51 @@ int main() {
 	// build and compile our shader zprogram
 	 // ------------------------------------
 	Shader lightingShader("1.colors.vs", "1.colors.fs");
+	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
 
-	// set up vertex data (and buffer(s)) and configure vertex attributes
-	// ------------------------------------------------------------------
 	float vertices[] = {
-		-0.5f, -0.5f, -0.5f,
-		 0.5f, -0.5f, -0.5f,
-		 0.5f,  0.5f, -0.5f,
-		 0.5f,  0.5f, -0.5f,
-		-0.5f,  0.5f, -0.5f,
-		-0.5f, -0.5f, -0.5f,
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
 
-		-0.5f, -0.5f,  0.5f,
-		 0.5f, -0.5f,  0.5f,
-		 0.5f,  0.5f,  0.5f,
-		 0.5f,  0.5f,  0.5f,
-		-0.5f,  0.5f,  0.5f,
-		-0.5f, -0.5f,  0.5f,
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f, 1.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f, 1.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f, 1.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f, 1.0f,
+		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f, 1.0f,
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f, 1.0f,
 
-		-0.5f,  0.5f,  0.5f,
-		-0.5f,  0.5f, -0.5f,
-		-0.5f, -0.5f, -0.5f,
-		-0.5f, -0.5f, -0.5f,
-		-0.5f, -0.5f,  0.5f,
-		-0.5f,  0.5f,  0.5f,
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
 
-		 0.5f,  0.5f,  0.5f,
-		 0.5f,  0.5f, -0.5f,
-		 0.5f, -0.5f, -0.5f,
-		 0.5f, -0.5f, -0.5f,
-		 0.5f, -0.5f,  0.5f,
-		 0.5f,  0.5f,  0.5f,
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
 
-		-0.5f, -0.5f, -0.5f,
-		 0.5f, -0.5f, -0.5f,
-		 0.5f, -0.5f,  0.5f,
-		 0.5f, -0.5f,  0.5f,
-		-0.5f, -0.5f,  0.5f,
-		-0.5f, -0.5f, -0.5f,
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
 
-		-0.5f,  0.5f, -0.5f,
-		 0.5f,  0.5f, -0.5f,
-		 0.5f,  0.5f,  0.5f,
-		 0.5f,  0.5f,  0.5f,
-		-0.5f,  0.5f,  0.5f,
-		-0.5f,  0.5f, -0.5f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
 	};
 	// first, configure the cube's VAO (and VBO)
 	unsigned int VBO, cubeVAO;
@@ -311,8 +342,11 @@ int main() {
 	glBindVertexArray(cubeVAO);
 
 	// position attribute
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
+	// normal attribute
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
 
 	// second, configure the light's VAO (VBO stays the same; the vertices are the same for the light object which is also a 3D cube)
 	unsigned int lightCubeVAO;
@@ -322,14 +356,14 @@ int main() {
 	// we only need to bind to the VBO (to link it with glVertexAttribPointer), no need to fill it; the VBO's data already contains all we need (it's already bound, but we do it again for educational purposes)
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 
 
 	// render loop
 	// -----------
 	glm::vec3 light_color = glm::vec3(1.0f, 1.0f, 1.0f);
-	glm::vec3 model_color =	glm::vec3(1.0f, 0.5f, 0.31f);
+	glm::vec3 model_color = glm::vec3(1.0f, 0.5f, 0.31f);
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -345,13 +379,36 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		// be sure to activate shader when setting uniforms/drawing objects
+#if 0
 		lightingShader.use();
-		lightingShader.setVec3("objectColor",model_color.r, model_color.g, model_color.b);
+		lightingShader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
 		lightingShader.setVec3("lightColor", light_color.r, light_color.g, light_color.b);
+		lightingShader.setVec3("lightPos", light_pos.r, light_pos.g, light_pos.b);
+		if (!fps_mode) {
+			lightingShader.setVec3("viewPos", camera.Position);
+		}
+		else {
+
+			lightingShader.setVec3("viewPos", fps_camera.Position);
+		}
 
 		// view/projection transformations
-		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-		glm::mat4 view = camera.GetViewMatrix();
+		glm::mat4 projection;
+		if (!fps_mode) {
+			projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+		}
+		else {
+			projection = glm::perspective(glm::radians(fps_camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+
+		}
+		glm::mat4  view;
+		if (!fps_mode) {
+			view = camera.GetViewMatrix();
+		}
+		else {
+			view = fps_camera.GetViewMatrix();
+		}
+
 		lightingShader.setMat4("projection", projection);
 		lightingShader.setMat4("view", view);
 
@@ -360,56 +417,58 @@ int main() {
 		model = glm::translate(model, model_pos);
 		model = glm::scale(model, model_scale); // a smaller cube
 		lightingShader.setMat4("model", model);
+#else
 
+		lightingShaderGouraud.use();
+		lightingShaderGouraud.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
+		lightingShaderGouraud.setVec3("lightColor", light_color.r, light_color.g, light_color.b);
+		lightingShaderGouraud.setVec3("lightPos", light_pos.r, light_pos.g, light_pos.b);
+		lightingShaderGouraud.setVec3("viewPos", camera.Position);
+
+		// view/projection transformations
+		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+		glm::mat4 view = camera.GetViewMatrix();
+		lightingShaderGouraud.setMat4("projection", projection);
+		lightingShaderGouraud.setMat4("view", view);
+
+		// world transformation
+		glm::mat4 model = glm::mat4(1.0f);
+		model = glm::translate(model, model_pos);
+		model = glm::scale(model, model_scale); // a smaller cube
+		lightingShaderGouraud.setMat4("model", model);
+
+#endif
 		// render the cube
 		glBindVertexArray(cubeVAO);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 
 
-		// also draw the lamp object
+		// also draw the LAMP object
 		lightCubeShader.use();
 		lightCubeShader.setMat4("projection", projection);
 		lightCubeShader.setMat4("view", view);
+
 		glm::mat4 light_model = glm::mat4(1.0f);
-		light_model = glm::translate(light_model, light_pos);
-		light_model = glm::scale(light_model, light_scale); // a smaller cube
+
+		glm::mat4 scale_matrix = glm::scale(glm::mat4(1.0f), light_scale); // a smaller cube
+		glm::mat4 rotation_matrix = glm::rotate(glm::mat4(1.0f), float(glfwGetTime()), glm::vec3(1.0, 0.0, 0.0));
+		glm::mat4 translation_matrix = glm::translate(glm::mat4(1.0f), light_pos);
+
+		glm::mat4 some_rot = glm::rotate(glm::mat4(1.0f), 0 * float(deltaTime), glm::vec3(0.0, 1.0, 0.0));
+		light_model = some_rot * translation_matrix * rotation_matrix * scale_matrix;
+
 		lightCubeShader.setMat4("model", light_model);
 
+		light_pos = glm::vec3(light_model[3]);
 		lightCubeShader.setVec3("lightColor", light_color.r, light_color.g, light_color.b);
 
 		glBindVertexArray(lightCubeVAO);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 
 
-		/* TODO IMGUI:
-		 LA CONCHA DE TU MADRE
 
-		- Inicializar imgui con OpenGL should be fucking straightforward (jua)
-		- I want show:
+		update_physics(deltaTime);
 
-			proj_matrix
-			view_matrix
-
-			light transform:
-			light_pos
-			light_scale
-			light_rot
-			light_matrix
-
-			light_color
-
-
-			model transform:
-			model_pos
-			model_scale
-			model_rot
-			model_matrix
-
-			model_unlit_color
-			model_lit_color
-
-			cam_pos
-		*/
 
 		glfwPollEvents();
 
@@ -494,18 +553,46 @@ int main() {
 		ImGui::End();
 
 
+
 		ImGui::Begin("camera", nullptr, global_flags);
 
-		if (ImGui::CollapsingHeader("camera transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-			ImGui::DragFloat3("cam pos", glm::value_ptr(camera.Position), 0.1f);
-			ImGui::DragFloat3("cam forward", glm::value_ptr(camera.Front), 0.1f);
-			ImGui::DragFloat3("cam up", glm::value_ptr(camera.Up), 0.1f);
-			ImGui::DragFloat3("cam right", glm::value_ptr(camera.Right), 0.1f);
-			ImGui::DragFloat3("cam world up", glm::value_ptr(camera.WorldUp), 0.1f);
-			ImGui::Spacing();
-			ImGui::DragFloat("cam yaw", &camera.Yaw, 0.1f);
-			ImGui::DragFloat("cam pitch", &camera.Pitch, 0.1f);
-			// TODO: Add rotation as well...
+		ImGui::Checkbox("Wireframe", &wireframe_mode);
+		if (wireframe_mode) {
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		}
+		else {
+			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		}
+
+		ImGui::Checkbox("FPS Camera", &fps_mode);
+
+		if (!fps_mode) {
+			if (ImGui::CollapsingHeader("camera transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::DragFloat3("cam pos", glm::value_ptr(camera.Position), 0.1f);
+				ImGui::DragFloat3("cam forward", glm::value_ptr(camera.Front), 0.1f);
+				ImGui::DragFloat3("cam up", glm::value_ptr(camera.Up), 0.1f);
+				ImGui::DragFloat3("cam right", glm::value_ptr(camera.Right), 0.1f);
+				ImGui::DragFloat3("cam world up", glm::value_ptr(camera.WorldUp), 0.1f);
+				ImGui::Spacing();
+				ImGui::DragFloat("cam yaw", &camera.Yaw, 0.1f);
+				ImGui::DragFloat("cam pitch", &camera.Pitch, 0.1f);
+				// TODO: Add rotation as well...
+			}
+
+		}
+		else {
+			if (ImGui::CollapsingHeader("camera transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::DragFloat3("cam pos", glm::value_ptr(fps_camera.Position), 0.1f);
+				ImGui::DragFloat3("cam forward", glm::value_ptr(fps_camera.Front), 0.1f);
+				ImGui::DragFloat3("cam up", glm::value_ptr(fps_camera.Up), 0.1f);
+				ImGui::DragFloat3("cam right", glm::value_ptr(fps_camera.Right), 0.1f);
+				ImGui::DragFloat3("cam world up", glm::value_ptr(fps_camera.WorldUp), 0.1f);
+				ImGui::Spacing();
+				ImGui::DragFloat("cam yaw", &fps_camera.Yaw, 0.1f);
+				ImGui::DragFloat("cam pitch", &fps_camera.Pitch, 0.1f);
+				// TODO: Add rotation as well...
+			}
+
 		}
 
 
@@ -528,7 +615,9 @@ int main() {
 
 		ImGui::Begin("perf", nullptr, global_flags);
 		float converted_delta_time = deltaTime * 1000.0f;
-		ImGui::InputFloat("delta time (in ms)", &converted_delta_time);
+		float fps = 1000.0 / converted_delta_time;
+		ImGui::InputFloat("delta time (in sec)", &converted_delta_time);
+		ImGui::InputFloat("FPS", &fps);
 		ImGui::End();
 
 
@@ -603,14 +692,32 @@ void processInput(GLFWwindow* window)
 
 
 	if (!gui_mode) {
-		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-			camera.ProcessKeyboard(FORWARD, deltaTime);
-		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-			camera.ProcessKeyboard(BACKWARD, deltaTime);
-		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-			camera.ProcessKeyboard(LEFT, deltaTime);
-		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-			camera.ProcessKeyboard(RIGHT, deltaTime);
+		if (!fps_mode) {
+			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+				camera.ProcessKeyboard(FORWARD, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+				camera.ProcessKeyboard(BACKWARD, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+				camera.ProcessKeyboard(LEFT, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+				camera.ProcessKeyboard(RIGHT, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+				camera.ProcessKeyboard(UP, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+				camera.ProcessKeyboard(DOWN, deltaTime);
+
+		}
+		else {
+			if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+				fps_camera.ProcessKeyboard(FORWARD, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+				fps_camera.ProcessKeyboard(BACKWARD, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+				fps_camera.ProcessKeyboard(LEFT, deltaTime);
+			if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+				fps_camera.ProcessKeyboard(RIGHT, deltaTime);
+
+		}
 	}
 }
 
@@ -642,9 +749,16 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 	lastX = xpos;
 	lastY = ypos;
 
-	
+
 	if (!gui_mode) {
-		camera.ProcessMouseMovement(xoffset, yoffset);
+		if (!fps_mode) {
+
+			camera.ProcessMouseMovement(xoffset, yoffset);
+		}
+		else {
+
+			fps_camera.ProcessMouseMovement(xoffset, yoffset);
+		}
 	}
 }
 
@@ -652,7 +766,13 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 // ----------------------------------------------------------------------
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
-	camera.ProcessMouseScroll(static_cast<float>(yoffset));
+	if (!fps_mode) {
+		camera.ProcessMouseScroll(static_cast<float>(yoffset));
+	}
+	else {
+		fps_camera.ProcessMouseScroll(static_cast<float>(yoffset));
+
+	}
 }
 
 
