@@ -1,6 +1,7 @@
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoords;
 
 out vec3 FragPos;
 out vec3 FragPosFromViewSpace;
@@ -9,6 +10,7 @@ out vec3 NormalFromViewSpace;
 
 uniform vec3 lightPos;
 out vec3 LightPosFromViewSpace;
+out vec2 TexCoords;
 
 
 uniform mat4 model;
@@ -26,4 +28,6 @@ void main()
 
 	NormalFromViewSpace = mat3(transpose(inverse(view * model))) * aNormal; 
 	LightPosFromViewSpace = vec3(view *vec4(lightPos, 1.0)); // lightPos is already in world-space, that's why I don't multiply it by the `model` matrix.
+
+	TexCoords = aTexCoords;
 }

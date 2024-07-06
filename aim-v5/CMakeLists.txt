@@ -17,5 +17,7 @@ add_compile_definitions("${CMAKE_PROJET_NAME}" PUBLIC AIM_ENGINE_ASSETS_PATH="${
 add_subdirectory(thirdparty/imgui-1.90.8)
 include_directories(thirdparty/imgui-1.90.8)
 
+include_directories(thirdparty/stb_image)
+
 add_subdirectory(engine)
 add_subdirectory(sandbox)
