@@ -101,6 +101,12 @@ float lastFrame = 0.0f;
 glm::vec3 light_pos(1.2f, 1.0f, 2.0f);
 glm::vec3 light_scale(0.2f);
 
+glm::vec3 light_ambient(0.2f, 0.2f, 0.2f);
+glm::vec3 light_diffuse( 0.5f, 0.5f, 0.5f); // darken diffuse light a bit
+glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
+
+
+
 // model
 glm::vec3 model_pos(0.0f, 0.0f, 0.0f);
 glm::vec3 model_scale(10.0f, 1.0f, -10.0f);
@@ -109,6 +115,14 @@ glm::vec3 model_bounding_box(model_scale * 1.0f); // este esta "mal" aca la cama
 // dentro del piso y la mitad arriba.
 
 //glm::vec3 model_scale(0.5f, 5.0f, 1.0f);
+
+// model materials
+glm::vec3 model_material_ambient(1.0f, 0.5f, 0.31f);
+glm::vec3 model_material_diffuse(1.0f, 0.5f, 0.31f);
+glm::vec3 model_material_specular(0.5f, 0.5f, 0.5f);
+float model_material_shininess(32.0f);
+
+
 
 
 // agregar fps done
@@ -362,7 +376,6 @@ int main() {
 
 	// render loop
 	// -----------
-	glm::vec3 light_color = glm::vec3(1.0f, 1.0f, 1.0f);
 	glm::vec3 model_color = glm::vec3(1.0f, 0.5f, 0.31f);
 
 	while (!glfwWindowShouldClose(window))
@@ -379,11 +392,18 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		// be sure to activate shader when setting uniforms/drawing objects
-#if 0
+#if 1
 		lightingShader.use();
 		lightingShader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
-		lightingShader.setVec3("lightColor", light_color.r, light_color.g, light_color.b);
-		lightingShader.setVec3("lightPos", light_pos.r, light_pos.g, light_pos.b);
+		lightingShader.setVec3("material.ambient", model_material_ambient);
+		lightingShader.setVec3("material.diffuse", model_material_diffuse);
+		lightingShader.setVec3("material.specular", model_material_specular);
+		lightingShader.setFloat("material.shininess", model_material_shininess);
+		lightingShader.setVec3("light.position", light_pos);
+		lightingShader.setVec3("light.ambient",  light_ambient);
+		lightingShader.setVec3("light.diffuse",  light_diffuse); // darken diffuse light a bit
+		lightingShader.setVec3("light.specular", light_specular);
+
 		if (!fps_mode) {
 			lightingShader.setVec3("viewPos", camera.Position);
 		}
@@ -423,7 +443,7 @@ int main() {
 		lightingShaderGouraud.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
 		lightingShaderGouraud.setVec3("lightColor", light_color.r, light_color.g, light_color.b);
 		lightingShaderGouraud.setVec3("lightPos", light_pos.r, light_pos.g, light_pos.b);
-		lightingShaderGouraud.setVec3("viewPos", camera.Position);
+		lightingShaderGouraud.setVec3("viewPos", camera.Position);lightPos
 
 		// view/projection transformations
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
@@ -443,6 +463,7 @@ int main() {
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 
 
+#pragma region LAMP_OBJECT
 		// also draw the LAMP object
 		lightCubeShader.use();
 		lightCubeShader.setMat4("projection", projection);
@@ -459,11 +480,12 @@ int main() {
 
 		lightCubeShader.setMat4("model", light_model);
 
+		// Just a visual representation, could be hardcoded in the fs
 		light_pos = glm::vec3(light_model[3]);
-		lightCubeShader.setVec3("lightColor", light_color.r, light_color.g, light_color.b);
-
+		lightCubeShader.setVec3("lightColor", glm::vec3(1.0f)); 
 		glBindVertexArray(lightCubeVAO);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
+#pragma endregion LAMP_OBJECT
 
 
 
@@ -528,6 +550,10 @@ int main() {
 		if (ImGui::CollapsingHeader("model material", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float;
 			ImGui::ColorEdit3("model color", reinterpret_cast<float*>(&model_color), flags);
+			ImGui::DragFloat3("material ambient", glm::value_ptr(model_material_ambient), 0.1f);
+			ImGui::DragFloat3("material diffuse", glm::value_ptr(model_material_diffuse), 0.1f);
+			ImGui::DragFloat3("material specular", glm::value_ptr(model_material_specular), 0.1f);
+			ImGui::DragFloat("material shininess", &model_material_shininess, 0.1f);
 		}
 		ImGui::End();
 
@@ -548,7 +574,9 @@ int main() {
 
 		if (ImGui::CollapsingHeader("light material", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float;
-			ImGui::ColorEdit3("light color", reinterpret_cast<float*>(&light_color), flags);
+			ImGui::ColorEdit3("light ambient", reinterpret_cast<float*>(&light_ambient), flags);
+			ImGui::ColorEdit3("light diffuse", reinterpret_cast<float*>(&light_diffuse), flags);
+			ImGui::ColorEdit3("light specular", reinterpret_cast<float*>(&light_specular), flags);
 		}
 		ImGui::End();
 
