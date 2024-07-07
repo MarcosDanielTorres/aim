@@ -55,8 +55,12 @@ void Camera::process_keyboard(Camera_Movement direction, float deltaTime)
 	}
 }
 
-void Camera::render_gui() {
-	ImGui::BeginChild("dsa");
+void Camera::render_gui(ImGuiContext* context) {
+	ImGui::SetCurrentContext(context);
+	if(ImGui::GetCurrentContext() == nullptr) {
+		FATAL("DJSADJLASD");
+		return;
+	}
 	if (ImGui::CollapsingHeader("camera transform", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::DragFloat3("cam pos", glm::value_ptr(this->position), 0.1f);
 		ImGui::DragFloat3("cam forward", glm::value_ptr(this->forward), 0.1f);

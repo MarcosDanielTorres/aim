@@ -4,6 +4,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "defines.h"
+#include "core/logger/logger.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -47,7 +48,7 @@ struct Camera {
 
 	// returns the view matrix calculated using Euler Angles and the LookAt Matrix
 	glm::mat4 AIM_API GetViewMatrix();
-	void AIM_API render_gui();
+	void AIM_API render_gui(ImGuiContext* context);
 
 	// processes input received from any keyboard-like input system. Accepts input parameter in the form of camera defined ENUM (to abstract it from windowing systems)
 	void AIM_API process_keyboard(Camera_Movement direction, float deltaTime);

@@ -622,13 +622,12 @@ int main() {
 
 		ImGui::Checkbox("FPS Camera", &fps_mode);
 
-		game_inst.on_gui_render(&game_inst);
+		//game_inst.on_gui_render(&game_inst);
 		if (fps_mode) {
-		//	fps_camera.render_gui();
+			fps_camera.render_gui(ImGui::GetCurrentContext());
 		}
 		else {
-
-		//	free_camera.render_gui();
+			free_camera.render_gui(ImGui::GetCurrentContext());
 		}
 
 
