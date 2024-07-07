@@ -1,0 +1,6 @@
+- (REQUIRED) OpenGL Renderer so I can follow along with learnopengl
+- (REQUIRED) Engine be a DLL
+- (THINK) thirdparty libraries resolution. precompiled, to compile.
+- (REQUIRED) Setup GLFW
+- (REQUIRED) Use CMake and Premake
+- (OPTIONAL) Enable Unity build to test if it works. Maybe it will be problematic with the DLL approach.
