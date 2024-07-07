@@ -34,14 +34,14 @@ bool on_gui_render(game* game_inst){
   // TODO: ponerlo en el init y llamar esto una sola vez
   //ImGui::SetCurrentContext(GetImGuiContext());
 
-  //ImGui::ShowDemoWindow();
-  //ImGui::Begin("Settings");
+//  ImGui::ShowDemoWindow();
+  ImGui::Begin("Settings");
 
-  //ImGui::Text("Renderer2D Stats:");
-  //ImGui::Text("Draw Calls: %d", 10);
-  //ImGui::Text("Quads: %d", 20);
+  ImGui::Text("Renderer2D Stats:");
+  ImGui::Text("Draw Calls: %d", 10);
+  ImGui::Text("Quads: %d", 20);
 
-  //ImGui::End();
+  ImGui::End();
 
   return true;
 }
