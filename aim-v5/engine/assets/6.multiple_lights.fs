@@ -71,6 +71,20 @@ void main()
     // phase 3: spot light
     result += CalcSpotLight(spotLight, norm, FragPos, viewDir);    
     
+
+    // depth visualization
+    float near = 0.1; 
+    float far  = 100.0; 
+    float z = gl_FragCoord.z * 2.0 - 1.0; // back to ndc
+    float linearized_depth = (2.0 * near * far) / (far + near - z * (far - near));
+    float depth = linearized_depth / far; // because most values will range from 0 to 100 (near to far) most values will be white so dividing it by far (100) normalizes them to [0, 1]
+    FragColor = vec4(vec3(depth), 1.0);
+    vec4 depthVec4 = vec4(vec3(pow(depth, 1.4)), 1.0);
+    //FragColor = vec4(result, 1.0) *  (1 - depthVec4) + depthVec4; // use the depth to add fog
+    // depth visualization
+
+
+    // standard behaviour
     FragColor = vec4(result, 1.0);
 }
 
