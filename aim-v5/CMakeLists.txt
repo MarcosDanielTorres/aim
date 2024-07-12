@@ -19,5 +19,11 @@ include_directories(thirdparty/imgui-1.90.8)
 
 include_directories(thirdparty/stb_image)
 
+
+
+set(PHYSICS_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/JoltPhysics)
+include(${PHYSICS_REPO_ROOT}/Jolt/Jolt.cmake)
+
+
 add_subdirectory(engine)
 add_subdirectory(sandbox)

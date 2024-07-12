@@ -11,6 +11,8 @@ include_directories(../thirdparty/glfw-3.4/include)
 include_directories(../thirdparty/imgui)
 link_directories(../thirdparty/imgui)
 
+include_directories(../thirdparty/JoltPhysics)
+
 include_directories(./jaja)
 
 
@@ -49,7 +51,7 @@ endif()
 set(Vulkan_INCLUDE_DIR $ENV{VULKAN_SDK}/Include)
 include_directories(${Vulkan_INCLUDE_DIR})
 
-target_link_libraries(Engine PUBLIC glfw opengl32 Vulkan::Vulkan imgui)
+target_link_libraries(Engine PUBLIC glfw opengl32 Vulkan::Vulkan imgui Jolt)
 
 
 

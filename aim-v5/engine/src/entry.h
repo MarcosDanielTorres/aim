@@ -19,6 +19,9 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+
 
 /*
 TODO:
@@ -63,6 +66,40 @@ static bool gui_mode = false;
 static bool wireframe_mode = false;
 static bool fps_mode = false;
 static float gravity = 2.2;
+
+
+JPH::BoxShape some{};
+
+
+
+bool r_pressed_in_last_frame = false;
+
+// Bounding boxes de los cubos tienen de ancho 1, desde el medio 0.5 en todas las direcciones.
+/*
+	Collision check:
+	When I press `R` cast ray.
+	Cast one ray in the direction of cam.pos + t * cam.forward and increment t each time in a loop
+	For every iteration go over all cubes positions at `cubePosition[i]` and see if `ro + t * rd` is inside a bounding box
+	calculated on the fly:
+		vec3 ray_pos = `ro + t * rd`;
+		float bounding_box[6] = {
+			cubePositions[i].x - 0.5 : cubePositions[i].x + 0.5
+			cubePositions[i].y - 0.5 : cubePositions[i].y + 0.5
+			cubePositions[i].z - 0.5 : cubePositions[i].z + 0.5
+		};
+		if (ray_pos.x >= bounding_box[0] && ray_pos.x <= bounding_box[1] &&
+			ray_pos.x >= bounding_box[2] && ray_pos.x <= bounding_box[3] &&
+			ray_pos.x >= bounding_box[4] && ray_pos.x <= bounding_box[5])
+
+*/
+
+struct RayCast {
+	glm::vec3 ro;
+	glm::vec3 rd;
+	float t;
+};
+
+std::vector<RayCast> ray_cast_list{};
 
 struct Transform3D {
 	glm::vec3 pos;
@@ -360,6 +397,8 @@ int main() {
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
 
+	Shader Raycast("1.light_cube.vs", "1.light_cube.fs");
+
 
 	float vertices[] = {
 		// positions          // normals           // texture coords
@@ -538,11 +577,13 @@ int main() {
 
 
 #pragma region render
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+		//glClearColor(1.1f, 0.1f, 0.1f, 1.0f);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(GL_LESS); 
+		glDepthFunc(GL_LESS);
 
+		glLineWidth(2.0f);
 		// view/projection transformations
 		glm::mat4 projection;
 		if (!fps_mode) {
@@ -673,7 +714,16 @@ int main() {
 
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
-		//glDrawArrays(GL_TRIANGLES, 0, 36);
+
+		// render floor, is just a plane
+		glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -4.0f, 0.0f)), glm::vec3(30.0f, 0.0f,  30.0f));
+		lightingShader.setMat4("model", model);
+		float floor_bb[6] = {
+
+		};
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+		// render floor, is just a plane
+
 #pragma endregion CUBE_OBJECT
 
 #pragma region LAMP_OBJECT
@@ -704,12 +754,51 @@ int main() {
 			model = glm::scale(model, glm::vec3(0.2f)); // Make it a smaller cube
 			lightCubeShader.setMat4("model", model);
 			glDrawArrays(GL_TRIANGLES, 0, 36);
-	}
+		}
 
 		//glDrawArrays(GL_TRIANGLES, 0, 36);
 
 #pragma endregion LAMP_OBJECT
 
+
+#pragma region RAYCAST
+		Raycast.use();
+
+		unsigned int vbo_ray, vao_ray;
+		glGenVertexArrays(1, &vao_ray);
+		glGenBuffers(1, &vbo_ray);
+		glBindVertexArray(vao_ray);
+
+
+		Raycast.setMat4("projection", projection);
+		Raycast.setMat4("view", view);
+		Raycast.setMat4("model", glm::mat4(1.0f));
+
+
+		std::vector<float> raycast_to_render{};
+		for (int i = 0; i < ray_cast_list.size(); i++) {
+			glm::vec3 ro = ray_cast_list[i].ro;
+			glm::vec3 rd = ray_cast_list[i].rd;
+
+			raycast_to_render.push_back(ro.x);
+			raycast_to_render.push_back(ro.y);
+			raycast_to_render.push_back(ro.z);
+			raycast_to_render.push_back(rd.x);
+			raycast_to_render.push_back(rd.y);
+			raycast_to_render.push_back(rd.z);
+		}
+
+		if (!raycast_to_render.empty()) {
+			glBindBuffer(GL_ARRAY_BUFFER, vbo_ray);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(float) * raycast_to_render.size(), &raycast_to_render[0], GL_STATIC_DRAW);
+
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(0);
+			glDrawArrays(GL_LINES, 0, raycast_to_render.size() / 6 * 2);
+		}
+
+
+#pragma endregion RAYCAST
 
 
 		update_physics(deltaTime);
@@ -723,9 +812,6 @@ int main() {
 
 		// Demo Window useful for inspecting its implementation
 		//ImGui::ShowDemoWindow();
-
-
-
 
 		// Start the parent window
 		//ImGui::Begin("Parent Window");
@@ -754,8 +840,6 @@ int main() {
 		//    ImGui::Spacing();
 		//}
 		//ImGui::End(); // End the parent window
-
-			//static ImVec4 col{};
 
 		ImGuiWindowFlags global_flags = ImGuiWindowFlags_None;
 		if (!gui_mode) {
@@ -864,7 +948,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-}
+	}
 
 	glDeleteVertexArrays(1, &cubeVAO);
 	glDeleteVertexArrays(1, &lightCubeVAO);
@@ -882,9 +966,16 @@ int main() {
 unsigned int bitflag_base = 0x00034000;
 unsigned int bitflag = 0x03;
 
+void cast_ray() {
+	if (!r_pressed_in_last_frame) {
+		RayCast ray{ .ro = free_camera.position, .rd = free_camera.position + 100.0f * free_camera.forward };
+		ray_cast_list.push_back(ray);
+	}
+}
 
 void processInput(GLFWwindow* window)
 {
+
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
@@ -904,6 +995,13 @@ void processInput(GLFWwindow* window)
 		gui_mode = false;
 		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 	}
+
+	if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS && !r_pressed_in_last_frame) {
+		cast_ray();
+	}
+
+	r_pressed_in_last_frame = glfwGetKey(window, GLFW_KEY_R) == (GLFW_PRESS || GLFW_REPEAT);
+
 
 	/*
 	* TODO:
@@ -962,7 +1060,6 @@ void processInput(GLFWwindow* window)
 				free_camera.process_keyboard(UP, deltaTime);
 			if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
 				free_camera.process_keyboard(DOWN, deltaTime);
-
 		}
 	}
 }
@@ -996,7 +1093,6 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 
 	if (!gui_mode) {
 		if (!fps_mode) {
-
 			free_camera.process_mouse_movement(xoffset, yoffset);
 		}
 		else {
