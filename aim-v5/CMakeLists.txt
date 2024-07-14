@@ -21,9 +21,28 @@ include_directories(thirdparty/stb_image)
 
 
 
-set(PHYSICS_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/JoltPhysics)
+set(PHYSICS_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/JoltPhysics-5.0.0)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE ON)
+set(DOUBLE_PRECISION OFF)
+set(GENERATE_DEBUG_SYMBOLS ON)
+set(CROSS_PLATFORM_DETERMINISTIC ON)
+set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF)
+set(OBJECT_LAYER_BITS 32)
+set(USE_SSE4_1 ON)
+set(USE_SSE4_2 ON)
+set(USE_AVX ON)
+set(USE_AVX2 ON)
+set(USE_AVX512 OFF)
+set(USE_LZCNT ON)
+set(USE_TZCNT ON)
+set(USE_F16C ON)
+set(USE_FMADD ON)
+# set(BUILD_SHARED_LIBS ON)
+set(INTERPROCEDURAL_OPTIMIZATION ON)
 include(${PHYSICS_REPO_ROOT}/Jolt/Jolt.cmake)
+
+#target_compile_definitions(Jolt PUBLIC "JPH_DEBUG_RENDERER")
 
 
 add_subdirectory(engine)
-add_subdirectory(sandbox)
+#add_subdirectory(sandbox)

@@ -11,7 +11,7 @@ include_directories(../thirdparty/glfw-3.4/include)
 include_directories(../thirdparty/imgui)
 link_directories(../thirdparty/imgui)
 
-include_directories(../thirdparty/JoltPhysics)
+include_directories(../thirdparty/JoltPhysics-5.0.0)
 
 include_directories(./jaja)
 
@@ -34,9 +34,8 @@ source_group(TREE "${ASSETS_DIR}" PREFIX "Assets" FILES ${ASSETS_FILES})
 add_custom_target(Assets SOURCES ${ASSETS_FILES})
 
 
-
-
-add_library(Engine SHARED ${SRC_FILES} ${HEADER_FILES})
+SETUP_APP(Engine "")
+#add_library(Engine SHARED ${SRC_FILES} ${HEADER_FILES})
 
 set_property(TARGET Engine PROPERTY CXX_STANDARD 20)
 set_property(TARGET Engine PROPERTY CXX_STANDARD_REQUIRED ON)

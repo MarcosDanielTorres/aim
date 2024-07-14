@@ -1,5 +1,8 @@
 #include "game.h"
 //#include "../engine/src/platform.h"
+#include "../engine/src/jolt_debug_renderer.h"
+#include "../thirdparty/JoltPhysics-5.0.0/Jolt/Jolt.h"
+#include "../thirdparty/JoltPhysics-5.0.0/Jolt/Renderer/DebugRenderer.h"
 
 bool game_init(game* game_inst) {
   INFO("Im in init function!");
