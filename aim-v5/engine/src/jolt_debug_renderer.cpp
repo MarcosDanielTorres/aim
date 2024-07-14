@@ -10,31 +10,26 @@ void JoltDebugRenderer::DrawLine(JPH::RVec3Arg inFrom, JPH::RVec3Arg inTo, JPH::
 		// aca para el `rd` no hago `ro + rd` como hice antes porque son dos puntos no mas, no tiene que ver la direccion.
 		.rd = glm::vec3(inTo.GetX(), inTo.GetY(), inTo.GetZ())
 		});
-	DEBUG("JOLT - DrawLine");
 }
 
 void JoltDebugRenderer::DrawTriangle(JPH::RVec3Arg inV1, JPH::RVec3Arg inV2, JPH::RVec3Arg inV3, JPH::ColorArg inColor, ECastShadow inCastShadow)
 {
-	DEBUG("JOLT - DrawTriangle");
 }
 // revisar por que esta dos mierdas siempre se llaman al principio
 JoltDebugRenderer::Batch JoltDebugRenderer::CreateTriangleBatch(const Triangle* inTriangles, int inTriangleCount)
 {
-	DEBUG("JOLT - CreateTriangleBatch with Triangle");
 	return new BatchImpl(inTriangles->mV, inTriangleCount * 3, nullptr, inTriangleCount * 3);
 }
 
 // revisar por que esta dos mierdas siempre se llaman al principio
 JoltDebugRenderer::Batch JoltDebugRenderer::CreateTriangleBatch(const Vertex* inVertices, int inVertexCount, const std::uint32_t* inIndices, int inIndexCount)
 {
-	DEBUG("JOLT - CreateTriangleBatch with Vertex");
 	return new BatchImpl(inVertices, inVertexCount, inIndices, inIndexCount);
 }
 
 void JoltDebugRenderer::DrawGeometry(JPH::RMat44Arg inModelMatrix, const JPH::AABox& inWorldSpaceBounds, float inLODScaleSq, JPH::ColorArg inModelColor,
 	const GeometryRef& inGeometry, ECullMode inCullMode, ECastShadow inCastShadow, EDrawMode inDrawMode)
 {
-	DEBUG("JOLT - DrawGeometry");
 
 
 	// elias
@@ -123,29 +118,29 @@ void JoltDebugRenderer::DrawGeometry(JPH::RMat44Arg inModelMatrix, const JPH::AA
 	//const BatchImpl *batch = static_cast<const BatchImpl *>(lod->mTriangleBatch.GetPtr());
 
 
-	const BatchImpl* batch = static_cast<const BatchImpl*>(inGeometry->mLODs[0].mTriangleBatch.GetPtr());
-
-	for (const Triangle& triangle : batch->mTriangles)
-	{
-		JPH::RVec3 v0 = inModelMatrix * JPH::Vec3(triangle.mV[0].mPosition);
-		JPH::RVec3 v1 = inModelMatrix * JPH::Vec3(triangle.mV[1].mPosition);
-		JPH::RVec3 v2 = inModelMatrix * JPH::Vec3(triangle.mV[2].mPosition);
-		JPH::Color color = inModelColor * triangle.mV[0].mColor;
-		JPH::Color some_color = JPH::Color(255, 0.0, 0.0, 255);
-
-		switch (inDrawMode)
-		{
-		case EDrawMode::Wireframe:
-			DrawLine(v0, v1, color);
-			DrawLine(v1, v2, color);
-			DrawLine(v2, v0, color);
-			break;
-
-		case EDrawMode::Solid:
-			DrawTriangle(v0, v1, v2, color, inCastShadow);
-			break;
-		}
-	}
+//	const BatchImpl* batch = static_cast<const BatchImpl*>(inGeometry->mLODs[0].mTriangleBatch.GetPtr());
+//
+//	for (const Triangle& triangle : batch->mTriangles)
+//	{
+//		JPH::RVec3 v0 = inModelMatrix * JPH::Vec3(triangle.mV[0].mPosition);
+//		JPH::RVec3 v1 = inModelMatrix * JPH::Vec3(triangle.mV[1].mPosition);
+//		JPH::RVec3 v2 = inModelMatrix * JPH::Vec3(triangle.mV[2].mPosition);
+//		JPH::Color color = inModelColor * triangle.mV[0].mColor;
+//		JPH::Color some_color = JPH::Color(255, 0.0, 0.0, 255);
+//
+//		switch (inDrawMode)
+//		{
+//		case EDrawMode::Wireframe:
+//			DrawLine(v0, v1, color);
+//			DrawLine(v1, v2, color);
+//			DrawLine(v2, v0, color);
+//			break;
+//
+//		case EDrawMode::Solid:
+//			DrawTriangle(v0, v1, v2, color, inCastShadow);
+//			break;
+//		}
+//	}
 }
 
 void JoltDebugRenderer::DrawText3D(JPH::RVec3Arg inPosition, const std::string_view& inString, JPH::ColorArg inColor, float inHeight) {
