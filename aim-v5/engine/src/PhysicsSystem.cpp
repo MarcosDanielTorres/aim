@@ -71,10 +71,10 @@ void PhysicsSystem::set_debug_camera_pos(glm::vec3 pos) {
 }
 
 
-JPH::BodyID PhysicsSystem::create_body(const aim::Components::Transform3D transform, JPH::Ref<JPH::Shape> shape, bool is_static) {
+JPH::BodyID PhysicsSystem::create_body(aim::Components::Transform3D* transform, JPH::Ref<JPH::Shape> shape, bool is_static) {
 	auto settings = JPH::BodyCreationSettings(
 		shape,
-		JPH::Vec3(transform.pos.x, transform.pos.y, transform.pos.z),
+		JPH::Vec3(transform->pos.x, transform->pos.y, transform->pos.z),
 		JPH::Quat::sIdentity(),
 		is_static ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
 		is_static ? Layers::NON_MOVING : Layers::MOVING);
@@ -82,6 +82,9 @@ JPH::BodyID PhysicsSystem::create_body(const aim::Components::Transform3D transf
 	auto& body_interface = this->get_body_interface();
 	auto body_id = body_interface.CreateAndAddBody(
 		settings, is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+
+	//body_to_transform_map.emplace(body_id, transform);
+	body_to_transform_map.insert({ body_id, transform });
 	return body_id;
 }
 
@@ -95,47 +98,42 @@ void PhysicsSystem::update_physics(float dt) {
 	this->inner_physics_system.GetActiveBodies(JPH::EBodyType::RigidBody, active_body_ids);
 	this->inner_physics_system.GetBodies(body_ids);
 
-	//debug
-	auto& lock_interface = this->inner_physics_system.GetBodyLockInterfaceNoLock();
-	for (const auto id : body_ids) {
-		JPH::BodyLockRead lock(lock_interface, id);
-		if (!lock.Succeeded()) {
-			continue;
+	if (this->debug_bodies) {
+		auto& lock_interface = this->inner_physics_system.GetBodyLockInterfaceNoLock();
+		for (const auto id : body_ids) {
+			JPH::BodyLockRead lock(lock_interface, id);
+			if (!lock.Succeeded()) {
+				continue;
+			}
+
+			const auto& body = lock.GetBody();
+
+			body.GetShape()->Draw(
+				&this->debugRenderer,
+				body.GetCenterOfMassTransform(),
+				JPH::Vec3::sReplicate(1.0f),
+				//JPH::Color::sGetDistinctColor(body.GetID().GetIndex()),
+				JPH::Color::sGreen,
+				false,
+				true);
 		}
-
-		const auto& body = lock.GetBody();
-
-		body.GetShape()->Draw(
-			&this->debugRenderer,
-			body.GetCenterOfMassTransform(),
-			JPH::Vec3::sReplicate(1.0f),
-			JPH::Color::sGetDistinctColor(body.GetID().GetIndex()),
-			false,
-			true);
-
 	}
 
-	//	sphere->GetShape()->Draw(
-	//		&physics_system.debugRenderer,
-	//		sphere->GetCenterOfMassTransform(),
-	//		JPH::Vec3::sReplicate(1.0f),
-	//		JPH::Color::sGetDistinctColor(sphere->GetID().GetIndex()),
-	//		false,
-	//		true);
-
+	if (!this->is_running) {
+		return;
+	}
+	//std::cout << "UPDATE PHYSICS" << std::endl;
 	if (!active_body_ids.empty()) {
+		// even if i dont have this inside this if the simulation, wont run if the bodies go to sleep. I need to awake them.
 
+		// IMPORTANTE: Lo unico que entra aca es lo que se esta moviendo. Lo estatico no, es decir el piso no esta en la simulacion.
+		std::cout << "number of active bodies: " << active_body_ids.size() << std::endl;
 		// We simulate the physics world in discrete time steps. 60 Hz is a good rate to update the physics system.
 		const float cDeltaTime = 1.0f / 60.0f;
-
-		// Now we're ready to simulate the body, keep simulating until it goes to sleep
-		static JPH::uint step = 0;
-		// Next step
 
 		// Output current position and velocity of the sphere
 		//JPH::RVec3 position = body_interface.GetCenterOfMassPosition(sphere_id);
 		//JPH::Vec3 velocity = body_interface.GetLinearVelocity(sphere_id);
-		//std::cout << "Step " << step << ": Position = (" << position.GetX() << ", " << position.GetY() << ", " << position.GetZ() << "), Velocity = (" << velocity.GetX() << ", " << velocity.GetY() << ", " << velocity.GetZ() << ")" << std::endl;
 
 		// If you take larger steps than 1 / 60th of a second you need to do multiple collision steps in order to keep the simulation stable. Do 1 collision step per 1 / 60th of a second (round up).
 		const int cCollisionSteps = (int)std::ceil(cDeltaTime / dt);
@@ -143,5 +141,27 @@ void PhysicsSystem::update_physics(float dt) {
 		// Step the world
 		this->inner_physics_system.Update(dt, cCollisionSteps, this->temp_allocator, &this->job_system);
 
+
+		// Synchronize graphical representations with physics
+		for (const JPH::BodyID id : active_body_ids) {
+			auto find_mesh_box = body_to_transform_map.find(id);
+			if (find_mesh_box != body_to_transform_map.end()) {
+				aim::Components::Transform3D* mesh_transform = find_mesh_box->second;
+
+				// Get the physics body's read lock
+				JPH::BodyLockRead lock(this->inner_physics_system.GetBodyLockInterfaceNoLock(), id);
+				if (!lock.Succeeded()) continue;
+
+				const auto& body = lock.GetBody();
+
+				// Update MeshBox's transform based on the body's new position
+				// para probar esto es mejor hacer una cajita y tirarla casi igual a como se hace la esfera, porque la esfera es mas compleja de renderizar y no tengo ganas.
+				const auto& transform = body.GetCenterOfMassTransform();
+				auto jaja = transform.GetTranslation();
+				std::cout << "Transform of Position = (" << jaja.GetX() << ", " << jaja.GetY() << ", " << jaja.GetZ() << ")" << std::endl;
+				mesh_transform->pos = glm::vec3(jaja.GetX(), jaja.GetY(), jaja.GetZ());
+				//mesh_box->transform.rotation = transform.GetRotation();  // Assuming you have rotation in Transform3D
+			}
+		}
 	}
 }

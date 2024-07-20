@@ -158,6 +158,8 @@ public:
 
 class PhysicsSystem {
 public:
+	bool is_running = false;
+	bool debug_bodies = false;
 	JPH::PhysicsSystem inner_physics_system;
 	JPH::TempAllocator* temp_allocator;
 	JPH::JobSystemThreadPool job_system;
@@ -188,11 +190,13 @@ public:
 	// Registering one is entirely optional.
 	MyContactListener contact_listener;
 
+	std::unordered_map<JPH::BodyID, aim::Components::Transform3D*> body_to_transform_map;
+
 	PhysicsSystem();
 	JPH::BodyInterface& get_body_interface();
 	void set_debug_camera_pos(glm::vec3 pos);
 	void update_physics(float dt);
 
 	// create the shape on main, and test
-	JPH::BodyID create_body(const aim::Components::Transform3D transform, JPH::Ref<JPH::Shape> shape, bool is_static);
+	JPH::BodyID create_body(aim::Components::Transform3D* transform, JPH::Ref<JPH::Shape> shape, bool is_static);
 };

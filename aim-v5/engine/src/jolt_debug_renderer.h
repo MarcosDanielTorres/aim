@@ -56,6 +56,7 @@ private:
 
 public:
 	std::vector<RayCast> ray_cast_list;
+	JPH::Color lines_color = JPH::Color::sGreen;
 
 public:
 	JPH::Vec3 mCameraPos{};

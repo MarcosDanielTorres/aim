@@ -36,31 +36,6 @@
 JPH_SUPPRESS_WARNINGS
 #include "PhysicsSystem.h"
 //#include "jolt_debug_renderer.h"
-/*
-TODO:
-	- Ver por que no puedo tomar los header files del proyecto e incluirlos con <>
-	- Ver si se puede meter el `glad.c` de alguna forma automatica. Ya que va a ir en todos los ejecutables.
-
-	CMake:
-		- Quiero poder agregar un puto archivo desde aca dentro y no tener que correr la mierda de CMake otra vez.
-			Es tremenda pelotudez. Tengo que ver como poner la integracion.
-		- Meter glad en thirdparty
-		- Meter la solution `imgui` y `glfw` en un folder que diga `thirdparty`
-
-	OpenGL:
-		- Anotar NDC de Vulkan y de Opengl y capaz de WGPU tambien.
-
-
-SUSPICIOUS THINGS:
-	- I removed `glad.c` from the engine. It's only needed on `Sandbox`.
-
-DONE:
-	- Renderizar un triangulo al menos
-	CMake:
-		- Consumir glad desde el engine y desde sandbox.
-			- Hacerlo para Debug y Release.
-*/
-
 
 
 #include "better_camera.h"
@@ -76,6 +51,7 @@ unsigned int loadTexture(const char* path);
 
 static bool gui_mode = false;
 static bool wireframe_mode = false;
+static bool physics_mode = false;
 static bool fps_mode = false;
 static float gravity = 2.2;
 
@@ -88,7 +64,10 @@ static float gravity = 2.2;
 
 bool r_pressed_in_last_frame = false;
 
-// Bounding boxes de los cubos tienen de ancho 1, desde el medio 0.5 en todas las direcciones.
+// Bounding boxes de los cubos tienen de ancho 1, desde el medio 0.5 en todas las direcciones. 
+// The same as Godot
+// Unreal Engine 
+// Unity unknown
 /*
 	Collision check:
 	When I press `R` cast ray.
@@ -107,17 +86,54 @@ bool r_pressed_in_last_frame = false;
 
 */
 
-/* TODO
+/* Tickets
 	functional:
+	- Floor physics:
+		- collision pos and cube pos move together DONE
+		- collision pos and cube scale move together DONE
+		- create falling cubes without rotation (they fall uniformly or whatever they call it, basically axis aligned?? ja and see how they interact with the static floor
+		- add rotation to these cubes
+
 	- Crear `CubeMesh` o `MeshCube`, ver Godot
-	- Sacar el puto physics system de aca DONE
-	- Agregarle una CollisionShape a los meshes 
+	- Agregarle una CollisionShape a los meshes
+	- Ver por que no puedo tomar los header files del proyecto e incluirlos con <>
+	- Ver si se puede meter el `glad.c` de alguna forma automatica. Ya que va a ir en todos los ejecutables.
+
+	- Usar curr_camera en todos lados. Solo esta en el `set_debug_camera()` del `physics_system`
+
+	- Reemplazar el floor actual por un objeto que renderice y tenga fisica.
+	- toggle between wireframe and physics. physics in green
+	- StaticBody, DynamicBody, KinematicBody
+	- Shape
 
 	non-functional:
 	- Meter im3d
 	- Hacer algo con el current camera
 
+	CMake:
+		- Quiero poder agregar un puto archivo desde aca dentro y no tener que correr la mierda de CMake otra vez.
+			Es tremenda pelotudez. Tengo que ver como poner la integracion.
+		- Meter glad en thirdparty
+		- Meter la solution `imgui` y `glfw` en un folder que diga `thirdparty`
+
+	OpenGL:
+		- Anotar NDC de Vulkan y de Opengl y capaz de WGPU tambien.
+
+SUSPICIOUS THINGS:
+	- I removed `glad.c` from the engine. It's only needed on `Sandbox`.
+
+DONE:
+	- Sacar el puto physics system de aca DONE
+	- The cube is not a cube... but it may be something related to perspective because the physics engine its able to map it correctly...
+		So this means the error is about perspective DONE: it was indeed a difference between the window size and the perspective size, they weren't using
+		the same values.
+
+	- Renderizar un triangulo al menos
+	CMake:
+		- Consumir glad desde el engine y desde sandbox.
+			- Hacerlo para Debug y Release.
 */
+
 
 
 #include "components.h"
@@ -132,10 +148,60 @@ struct RayCast {
 std::vector<RayCast> ray_cast_list{};
 
 
-struct MeshBox {
-	Transform3D transform;
+enum PhysicsBodyType {
+	STATIC,
+	DYNAMIC,
+	KINEMATIC,
+	EMPTY,
+};
+
+struct PhysicsBody {
+	JPH::Shape* shape;
+	PhysicsBodyType physics_body_type;
+	JPH::BodyID physics_body_id;
+
+	//PhysicsBody(JPH::Ref<JPH::Shape> ashape = nullptr, PhysicsBodyType type = PhysicsBodyType::EMPTY) : physics_body_type(type) {
+	//	shape = ashape;
+	//}
+
+	//PhysicsBody(PhysicsSystem& physics_system, JPH::Ref<JPH::Shape> shape, PhysicsBodyType type) : physics_body_type(type) {
+	//	bool is_static = 	
+	//}
 
 };
+
+//cube = MeshBox();
+//cube.set_shape();
+//cube.set_motion_type();
+//cube.set_layer();
+struct MeshBox {
+	Transform3D transform;
+	PhysicsBody body;
+
+	MeshBox(Transform3D transform) {
+		this->transform = transform;
+	}
+
+	// this is not the best api, its only used once when there is no body. Only done in creation
+	// This api is more like a builder style api, its probably better to have it inside the constructor and that's it or use a builder for this shapes. which could be good.
+	void set_shape(JPH::Ref<JPH::Shape> shape) {
+		this->body.shape = shape;
+	}
+
+	void update_body_shape(PhysicsSystem& physics_system) {
+		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(this->transform.scale.x / 2.0, this->transform.scale.y / 2.0, this->transform.scale.z / 2.0));
+		floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+		JPH::Ref<JPH::Shape> floor_shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+		this->body.shape = floor_shape;
+
+		physics_system.get_body_interface().SetShape(this->body.physics_body_id, this->body.shape, false, JPH::EActivation::DontActivate);
+		glm::vec3 my_pos = this->transform.pos;
+		JPH::Vec3 new_pos = JPH::Vec3(my_pos.x, my_pos.y, my_pos.z);
+		physics_system.get_body_interface().SetPosition(this->body.physics_body_id, new_pos, JPH::EActivation::DontActivate);
+	}
+};
+
 
 struct PointLight {
 	Transform3D transform;
@@ -189,20 +255,19 @@ struct Model {
 
 
 // settings
-//const unsigned int SCR_WIDTH = 1700;
-//const unsigned int SCR_HEIGHT = 900;
-
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 640;
+//const unsigned int SRC_WIDTH = 1280;
+//const unsigned int SRC_HEIGHT = 720;
+const unsigned int SRC_WIDTH = 1920;
+const unsigned int SRC_HEIGHT = 1080;
 
 // camera
-Camera free_camera(FREE_CAMERA, glm::vec3(0.0f, 8.0f, 35.0f));
+Camera free_camera(FREE_CAMERA, glm::vec3(0.0f, 5.0f, 19.0f));
 Camera fps_camera(FPS_CAMERA, glm::vec3(0.0f, 8.0f, 3.0f));
 // TODO: hacer esto...
 Camera& curr_camera = free_camera;
 
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
+float lastX = SRC_WIDTH / 2.0f;
+float lastY = SRC_HEIGHT / 2.0f;
 bool firstMouse = true;
 
 // timing
@@ -221,9 +286,9 @@ glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
 
 
 // model
-glm::vec3 model_pos(0.0f, 0.0f, 0.0f);
-glm::vec3 model_scale(10.0f, 1.0f, -10.0f);
-glm::vec3 model_bounding_box(model_scale * 1.0f); // este esta "mal" aca la camara tiene cierta altura pero no es la colision posta con el piso.
+glm::vec3 floor_pos(0.0f, -1.9f, -2.2f);
+glm::vec3 floor_scale(20.0f, 1.0f, 20.0f);
+glm::vec3 model_bounding_box(floor_scale * 1.0f); // este esta "mal" aca la camara tiene cierta altura pero no es la colision posta con el piso.
 //glm::vec3 model_bounding_box(model_scale / 2.0f); // esta seria la correcta pasa que ahi me queda el centro de la camara donde termina el piso entonces queda la mitad
 // dentro del piso y la mitad arriba.
 
@@ -366,8 +431,8 @@ int main() {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "JDsa", NULL, NULL);
-	//GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfwGetPrimaryMonitor(), NULL);
+	//GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "JDsa", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "aim", glfwGetPrimaryMonitor(), NULL);
 
 
 
@@ -427,19 +492,23 @@ int main() {
 	PhysicsSystem physics_system{};
 
 
-	JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(10.0f, 1.0f, 10.0f));
-	floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+	//JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(10.0f, 1.0f, 10.0f));
+	//JPH::BodyID my_floor = physics_system.create_body(Transform3D(glm::vec3(0.0, -1.0, 0.0)), floor_shape, true);
+	//JPH::BodyID my_floor = physics_system.create_body(Transform3D(glm::vec3(0.0, 8.0, 0.0)), new JPH::BoxShape(JPH::Vec3(10.0f, 1.0f, 10.0f)), true);
 
-	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
-	JPH::Ref<JPH::Shape> floor_shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+	//MeshBox floor_meshbox = MeshBox(Transform3D(glm::vec3(0.0, -1.0, 0.0)));
 
-	JPH::BodyID my_floor = physics_system.create_body(Transform3D(glm::vec3(0.0, -1.0, 0.0)), floor_shape, true);
+	// SEE what happens if I move the static body (the floor) and see if the ball follows it
+	// todo: JPH::BodyID my_floor = physics_system.create_body(floor_meshbox.transform.pos, floor_meshbox.physics_body->shape, true);
 
-	JPH::BodyCreationSettings sphere_settings(new JPH::SphereShape(1.5f), JPH::RVec3(0.0_r, 15.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
-	sphere_settings.mMassPropertiesOverride = JPH::MassProperties{ .mMass = 40.0f };
-	JPH::BodyID my_sphere = physics_system.create_body(Transform3D(glm::vec3(0.0, 15.0, 0.0)), new JPH::SphereShape(1.5f), false);
-	physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
-	physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
+
+	//JPH::BodyCreationSettings sphere_settings(new JPH::SphereShape(1.5f), JPH::RVec3(0.0_r, 15.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+	//sphere_settings.mMassPropertiesOverride = JPH::MassProperties{ .mMass = 40.0f };
+	//Transform3D sphere_transform = Transform3D(glm::vec3(0.0, 15.0, 0.0));
+	//JPH::BodyID my_sphere = physics_system.create_body(&sphere_transform, new JPH::SphereShape(1.5f), false);
+	//physics_system.get_body_interface().GetShape(my_sphere);
+	//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
+	//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
 
 	physics_system.inner_physics_system.OptimizeBroadPhase();
 
@@ -457,7 +526,7 @@ int main() {
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
 
-	Shader Raycast("1.light_cube.vs", "1.light_cube.fs");
+	Shader Raycast("line_shader.vs", "line_shader.fs");
 
 
 	float vertices[] = {
@@ -507,17 +576,51 @@ int main() {
 
 
 	std::vector<MeshBox> boxes = {
-		MeshBox{.transform = Transform3D(glm::vec3(0.0f,  0.0f,  0.0f))},
-		MeshBox{.transform = Transform3D(glm::vec3(2.0f,  5.0f, -15.0f))},
-		MeshBox{.transform = Transform3D(glm::vec3(-1.5f, -2.2f, -2.5f))},
-		MeshBox{.transform = Transform3D(glm::vec3(-3.8f, -2.0f, -12.3f))},
-		MeshBox{.transform = Transform3D(glm::vec3(2.4f, -0.4f, -3.5f))},
-		MeshBox{.transform = Transform3D(glm::vec3(-1.7f,  3.0f, -7.5f))},
-		MeshBox{.transform = Transform3D(glm::vec3(1.3f, -2.0f, -2.5f))},
-		MeshBox{.transform = Transform3D(glm::vec3(1.5f,  2.0f, -2.5f))},
-		MeshBox{.transform = Transform3D(glm::vec3(1.5f,  0.2f, -1.5f))},
-		MeshBox{.transform = Transform3D(glm::vec3(-1.3f,  1.0f, -1.5f))},
+		MeshBox(Transform3D(glm::vec3(0.0f,  13.0f,  0.0f))),
+		MeshBox(Transform3D(glm::vec3(5.0f,  6.0f, -10.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.5f, 5.2f, -2.5f))),
+		MeshBox(Transform3D(glm::vec3(-9.8f, 5.0f, -12.3f))),
+		MeshBox(Transform3D(glm::vec3(2.4f, 3.4f, -3.5f))),
+		MeshBox(Transform3D(glm::vec3(-8.7f,  6.0f, -7.5f))),
+		MeshBox(Transform3D(glm::vec3(3.3f, 5.0f, -2.5f))),
+		MeshBox(Transform3D(glm::vec3(1.5f,  5.0f, -2.5f))),
+		MeshBox(Transform3D(glm::vec3(8.5f,  8.2f, -1.5f))),
+		MeshBox(Transform3D(glm::vec3(-8.3f,  4.0f, -1.5f))),
+
+
+		// a pile of boxes
+		MeshBox(Transform3D(glm::vec3(0.0f,  20.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  22.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  24.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f,  26.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  27.0f, 0.0f))),
+
+
+		MeshBox(Transform3D(glm::vec3(0.0f,  30.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  31.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  32.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f,  33.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  34.0f, 0.0f))),
+
 	};
+
+	for (int i = 0; i < boxes.size(); i++) {
+		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(boxes[i].transform.scale.x / 2.0, boxes[i].transform.scale.y / 2.0, boxes[i].transform.scale.z / 2.0));
+		floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+		JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+		boxes[i].set_shape(shape);
+		boxes[i].body.physics_body_id = physics_system.create_body(&boxes[i].transform, boxes[i].body.shape, false);
+	}
+
+
+	JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(floor_scale.x / 2.0, floor_scale.y / 2.0, floor_scale.z / 2.0));
+	floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+	JPH::Ref<JPH::Shape> floor_shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+	MeshBox floor_meshbox = MeshBox(Transform3D(glm::vec3(floor_pos.x, floor_pos.y, floor_pos.z), glm::vec3(floor_scale.x, floor_scale.y, floor_scale.z)));
+	floor_meshbox.set_shape(floor_shape); // the problem of storing the shape is that this can change, in theory... but not for now at least
+	floor_meshbox.body.physics_body_id = physics_system.create_body(&floor_meshbox.transform, floor_meshbox.body.shape, true);
 
 #pragma region l2_LIGHT_DEFINITION
 	PointLight point_lights[] = {
@@ -644,10 +747,10 @@ int main() {
 		// view/projection transformations
 		glm::mat4 projection;
 		if (!fps_mode) {
-			projection = glm::perspective(glm::radians(free_camera.zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+			projection = glm::perspective(glm::radians(free_camera.zoom), (float)SRC_WIDTH / (float)SRC_HEIGHT, 0.1f, 100.0f);
 		}
 		else {
-			projection = glm::perspective(glm::radians(fps_camera.zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+			projection = glm::perspective(glm::radians(fps_camera.zoom), (float)SRC_WIDTH / (float)SRC_HEIGHT, 0.1f, 100.0f);
 
 		}
 		glm::mat4  view;
@@ -766,19 +869,19 @@ int main() {
 			glm::mat4 model = glm::mat4(1.0f);
 			model = glm::translate(model, boxes[i].transform.pos);
 			float angle = 20.0f * i;
-			model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f));
+			//model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f)); // take rotation out for testing
 			lightingShader.setMat4("model", model);
 
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
 
 		// render floor, is just a plane
-		glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -4.0f, 0.0f)), glm::vec3(30.0f, 0.0f, 30.0f));
-		lightingShader.setMat4("model", model);
-		float floor_bb[6] = {
 
-		};
+		glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), floor_meshbox.transform.scale);
+		//glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor.transform.pos), floor.transform.scale);
+		lightingShader.setMat4("model", model);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
+
 		// render floor, is just a plane
 
 #pragma endregion CUBE_OBJECT
@@ -824,6 +927,8 @@ int main() {
 		Raycast.setMat4("projection", projection);
 		Raycast.setMat4("view", view);
 		Raycast.setMat4("model", glm::mat4(1.0f));
+		JPH::Color line_color = physics_system.debugRenderer.lines_color;
+		Raycast.setVec4("line_color", line_color.r, line_color.g, line_color.b, line_color.a);
 
 
 
@@ -842,7 +947,7 @@ int main() {
 		}
 
 		//debugRenderer.mCameraPos = JPH::Vec3(free_camera.position.x, free_camera.position.y, free_camera.position.z);
-		physics_system.set_debug_camera_pos(free_camera.position);
+		physics_system.set_debug_camera_pos(curr_camera.position);
 
 		// This are my manual rays when I press R
 		// this has been disabled for now.
@@ -931,11 +1036,24 @@ int main() {
 		}
 
 
+		ImGui::Begin("Physics", nullptr, global_flags);
+		ImGui::Checkbox("Enable physics", &physics_system.is_running);
+		ImGui::Checkbox("Enable collision shape", &physics_system.debug_bodies);
+		ImGui::End();
+
 		// this could be: Mesh.render_gui()
 		ImGui::Begin("Model", nullptr, global_flags);
 		if (ImGui::CollapsingHeader("model transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-			ImGui::DragFloat3("model pos", glm::value_ptr(model_pos), 0.1f);
-			ImGui::DragFloat3("model scale", glm::value_ptr(model_scale), 0.1f);
+			//ImGui::DragFloat3("model pos", glm::value_ptr(floor_pos), 0.1f);
+			//ImGui::DragFloat3("model scale", glm::value_ptr(floor_scale), 0.1f);
+			if (ImGui::DragFloat3("model pos", glm::value_ptr(floor_meshbox.transform.pos), 0.1f)) {
+				floor_meshbox.update_body_shape(physics_system);
+			}
+
+			if (ImGui::DragFloat3("model scale", glm::value_ptr(floor_meshbox.transform.scale), 0.05f, 0.1001f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+				floor_meshbox.update_body_shape(physics_system);
+
+			}
 			// TODO: Add rotation as well...
 		}
 
@@ -979,7 +1097,7 @@ int main() {
 
 
 		// this could be: Camera.render_gui()
-		ImGui::Begin("camera", nullptr, global_flags);
+		ImGui::Begin("Camera", nullptr, global_flags);
 
 		ImGui::Checkbox("Wireframe", &wireframe_mode);
 		if (wireframe_mode) {
@@ -988,6 +1106,8 @@ int main() {
 		else {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		}
+
+
 
 		ImGui::Checkbox("FPS Camera", &fps_mode);
 
@@ -998,6 +1118,8 @@ int main() {
 		else {
 			free_camera.render_gui(ImGui::GetCurrentContext());
 		}
+
+		ImGui::SliderFloat("movement speed", &curr_camera.movement_speed, 0.1f, 100.0f);
 
 
 		if (ImGui::CollapsingHeader("proj matrix", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1036,13 +1158,13 @@ int main() {
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
-	physics_system.get_body_interface().RemoveBody(my_sphere);
+	//physics_system.get_body_interface().RemoveBody(my_sphere);
 	// Destroy the sphere. After this the sphere ID is no longer valid.
-	physics_system.get_body_interface().DestroyBody(my_sphere);
+	//physics_system.get_body_interface().DestroyBody(my_sphere);
 
 	// Remove and destroy the floor
-	physics_system.get_body_interface().RemoveBody(my_floor);
-	physics_system.get_body_interface().DestroyBody(my_floor);
+	//physics_system.get_body_interface().RemoveBody(my_floor);
+	//physics_system.get_body_interface().DestroyBody(my_floor);
 
 	// Unregisters all types with the factory and cleans up the default material
 	JPH::UnregisterTypes();
@@ -1177,6 +1299,10 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 	DEBUG("Window resized!");
 	// Note: width and height will be significantly larger than specified on retina displays.
 	glViewport(0, 0, width, height);
+
+
+	// im not updating the perspective camera correctly using the new properties of the window. It only works because the aspect ratio remains the same in my
+	// normal usecase
 }
 
 
