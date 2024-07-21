@@ -99,6 +99,7 @@ void PhysicsSystem::update_physics(float dt) {
 	this->inner_physics_system.GetBodies(body_ids);
 
 	if (this->debug_bodies) {
+		std::cout << "Hay estos bodies: " << body_ids.size() << std::endl;
 		auto& lock_interface = this->inner_physics_system.GetBodyLockInterfaceNoLock();
 		for (const auto id : body_ids) {
 			JPH::BodyLockRead lock(lock_interface, id);
@@ -142,25 +143,33 @@ void PhysicsSystem::update_physics(float dt) {
 		this->inner_physics_system.Update(dt, cCollisionSteps, this->temp_allocator, &this->job_system);
 
 
+		// if i comment all of these then it fucking workssssss
 		// Synchronize graphical representations with physics
+		
+
+		auto& lock_interface = this->inner_physics_system.GetBodyLockInterfaceNoLock();
 		for (const JPH::BodyID id : active_body_ids) {
 			auto find_mesh_box = body_to_transform_map.find(id);
 			if (find_mesh_box != body_to_transform_map.end()) {
 				aim::Components::Transform3D* mesh_transform = find_mesh_box->second;
 
 				// Get the physics body's read lock
-				JPH::BodyLockRead lock(this->inner_physics_system.GetBodyLockInterfaceNoLock(), id);
+				JPH::BodyLockRead lock(lock_interface, id);
 				if (!lock.Succeeded()) continue;
 
 				const auto& body = lock.GetBody();
 
 				// Update MeshBox's transform based on the body's new position
-				// para probar esto es mejor hacer una cajita y tirarla casi igual a como se hace la esfera, porque la esfera es mas compleja de renderizar y no tengo ganas.
 				const auto& transform = body.GetCenterOfMassTransform();
 				auto jaja = transform.GetTranslation();
-				std::cout << "Transform of Position = (" << jaja.GetX() << ", " << jaja.GetY() << ", " << jaja.GetZ() << ")" << std::endl;
+				auto rotation = transform.GetQuaternion();
 				mesh_transform->pos = glm::vec3(jaja.GetX(), jaja.GetY(), jaja.GetZ());
-				//mesh_box->transform.rotation = transform.GetRotation();  // Assuming you have rotation in Transform3D
+
+				//auto rotation_euler = rotation.GetEulerAngles();
+				//mesh_transform->eulerAngles = glm::vec3(glm::degrees(rotation_euler.GetX()), glm::degrees(rotation_euler.GetY()), glm::degrees(rotation_euler.GetZ()));
+				//mesh_transform->update_rotation();
+
+				mesh_transform->rot = glm::quat(rotation.GetW(), rotation.GetX(), rotation.GetY(), rotation.GetZ());
 			}
 		}
 	}

@@ -56,13 +56,22 @@ static bool fps_mode = false;
 static float gravity = 2.2;
 
 
-// jolt
+// singleton
+
+// Define static members
+//PhysicsSystem* PhysicsSystem::instance = nullptr;
+//std::once_flag PhysicsSystem::initInstanceFlag;
+
+struct Context {
+	PhysicsSystem* physics_system;
+};
+// singleton
 
 
-// jolt
-
-
+struct MeshBox;
 bool r_pressed_in_last_frame = false;
+
+std::vector<MeshBox> projectiles;
 
 // Bounding boxes de los cubos tienen de ancho 1, desde el medio 0.5 en todas las direcciones. 
 // The same as Godot
@@ -194,11 +203,17 @@ struct MeshBox {
 		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
 		JPH::Ref<JPH::Shape> floor_shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
 		this->body.shape = floor_shape;
-
 		physics_system.get_body_interface().SetShape(this->body.physics_body_id, this->body.shape, false, JPH::EActivation::DontActivate);
+
 		glm::vec3 my_pos = this->transform.pos;
 		JPH::Vec3 new_pos = JPH::Vec3(my_pos.x, my_pos.y, my_pos.z);
 		physics_system.get_body_interface().SetPosition(this->body.physics_body_id, new_pos, JPH::EActivation::DontActivate);
+
+		physics_system.get_body_interface().SetRotation(
+			this->body.physics_body_id,
+			JPH::Quat(this->transform.rot.x, this->transform.rot.y, this->transform.rot.z, this->transform.rot.w),
+			JPH::EActivation::DontActivate
+		);
 	}
 };
 
@@ -255,10 +270,10 @@ struct Model {
 
 
 // settings
-//const unsigned int SRC_WIDTH = 1280;
-//const unsigned int SRC_HEIGHT = 720;
-const unsigned int SRC_WIDTH = 1920;
-const unsigned int SRC_HEIGHT = 1080;
+const unsigned int SRC_WIDTH = 1280;
+const unsigned int SRC_HEIGHT = 720;
+//const unsigned int SRC_WIDTH = 1920;
+//const unsigned int SRC_HEIGHT = 1080;
 
 // camera
 Camera free_camera(FREE_CAMERA, glm::vec3(0.0f, 5.0f, 19.0f));
@@ -431,8 +446,8 @@ int main() {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	//GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "JDsa", NULL, NULL);
-	GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "aim", glfwGetPrimaryMonitor(), NULL);
+	GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "JDsa", NULL, NULL);
+	//GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "aim", glfwGetPrimaryMonitor(), NULL);
 
 
 
@@ -490,6 +505,14 @@ int main() {
 	// this is a must
 	JPH::RegisterDefaultAllocator();
 	PhysicsSystem physics_system{};
+	// Set up the context
+	Context context;
+	context.physics_system = &physics_system;
+
+	// Set the user pointer
+	glfwSetWindowUserPointer(window, &context);
+	//PhysicsSystem& physics_system = PhysicsSystem::getInstance();
+
 
 
 	//JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(10.0f, 1.0f, 10.0f));
@@ -596,6 +619,31 @@ int main() {
 		MeshBox(Transform3D(glm::vec3(0.0f,  27.0f, 0.0f))),
 
 
+
+		MeshBox(Transform3D(glm::vec3(0.0f,  30.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  31.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  32.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f,  33.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  34.0f, 0.0f))),
+
+		MeshBox(Transform3D(glm::vec3(0.0f,  30.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  31.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  32.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f,  33.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  34.0f, 0.0f))),
+
+		MeshBox(Transform3D(glm::vec3(0.0f,  30.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  31.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  32.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f,  33.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  34.0f, 0.0f))),
+
+		MeshBox(Transform3D(glm::vec3(0.0f,  30.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  31.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  32.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f,  33.0f, 0.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  34.0f, 0.0f))),
+
 		MeshBox(Transform3D(glm::vec3(0.0f,  30.0f, 0.0f))),
 		MeshBox(Transform3D(glm::vec3(0.0f,  31.0f, 0.0f))),
 		MeshBox(Transform3D(glm::vec3(-1.0f,  32.0f, 0.0f))),
@@ -614,13 +662,17 @@ int main() {
 	}
 
 
+	// floor
 	JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(floor_scale.x / 2.0, floor_scale.y / 2.0, floor_scale.z / 2.0));
 	floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
 	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
 	JPH::Ref<JPH::Shape> floor_shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+
 	MeshBox floor_meshbox = MeshBox(Transform3D(glm::vec3(floor_pos.x, floor_pos.y, floor_pos.z), glm::vec3(floor_scale.x, floor_scale.y, floor_scale.z)));
+
 	floor_meshbox.set_shape(floor_shape); // the problem of storing the shape is that this can change, in theory... but not for now at least
 	floor_meshbox.body.physics_body_id = physics_system.create_body(&floor_meshbox.transform, floor_meshbox.body.shape, true);
+
 
 #pragma region l2_LIGHT_DEFINITION
 	PointLight point_lights[] = {
@@ -866,19 +918,44 @@ int main() {
 		for (unsigned int i = 0; i < boxes.size(); i++)
 		{
 			// calculate the model matrix for each object and pass it to shader before drawing
-			glm::mat4 model = glm::mat4(1.0f);
-			model = glm::translate(model, boxes[i].transform.pos);
-			float angle = 20.0f * i;
+			//glm::mat4 model = glm::mat4(1.0f);
+			//model = glm::translate(model, boxes[i].transform.pos);
+			//float angle = 20.0f * i;
 			//model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f)); // take rotation out for testing
+
+			// with rotations
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), boxes[i].transform.pos) *
+				glm::mat4_cast(boxes[i].transform.rot) *
+				glm::scale(glm::mat4(1.0f), boxes[i].transform.scale);
 			lightingShader.setMat4("model", model);
 
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
 
+		// projectiles
+		for (unsigned int i = 0; i < projectiles.size(); i++)
+		{
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), projectiles[i].transform.pos) *
+				glm::mat4_cast(projectiles[i].transform.rot) *
+				glm::scale(glm::mat4(1.0f), projectiles[i].transform.scale);
+			lightingShader.setMat4("model", model);
+
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+		}
+
+
 		// render floor, is just a plane
 
-		glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), floor_meshbox.transform.scale);
-		//glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor.transform.pos), floor.transform.scale);
+		// position * scale
+		//glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), floor_meshbox.transform.scale);
+		// positoin * rotation * scale
+		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
+		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos) *
+			glm::mat4_cast(floor_meshbox.transform.rot) *
+			glm::scale(glm::mat4(1.0f), floor_meshbox.transform.scale);
+
+
 		lightingShader.setMat4("model", model);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 
@@ -1049,12 +1126,22 @@ int main() {
 			if (ImGui::DragFloat3("model pos", glm::value_ptr(floor_meshbox.transform.pos), 0.1f)) {
 				floor_meshbox.update_body_shape(physics_system);
 			}
+			if (projectiles.size() > 0) {
 
-			if (ImGui::DragFloat3("model scale", glm::value_ptr(floor_meshbox.transform.scale), 0.05f, 0.1001f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+				if (ImGui::DragFloat3("una mierda", glm::value_ptr(projectiles[0].transform.pos), 0.1f)) {
+					projectiles[0].update_body_shape(physics_system);
+				}
+			}
+
+			if (ImGui::DragFloat3("model scale", glm::value_ptr(floor_meshbox.transform.scale), 0.05f, 0.1001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 				floor_meshbox.update_body_shape(physics_system);
 
 			}
-			// TODO: Add rotation as well...
+
+			if (ImGui::DragFloat3("model rotation", glm::value_ptr(floor_meshbox.transform.eulerAngles), 0.25f, -FLT_MAX, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+				floor_meshbox.transform.update_rotation();
+				floor_meshbox.update_body_shape(physics_system);
+			}
 		}
 
 		if (ImGui::CollapsingHeader("model material", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1202,6 +1289,24 @@ void processInput(GLFWwindow* window)
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
+	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !r_pressed_in_last_frame) {
+		MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
+		// Get the context from the user pointer
+		Context* context = static_cast<Context*>(glfwGetWindowUserPointer(window));
+		//PhysicsSystem& physics_system = PhysicsSystem::getInstance();
+
+		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(projectile.transform.scale.x / 2.0, projectile.transform.scale.y / 2.0, projectile.transform.scale.z / 2.0));
+		floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+		JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+		projectile.set_shape(shape);
+		//projectile.body.physics_body_id = physics_system.create_body(&projectile.transform, projectile.body.shape, false);
+		projectile.body.physics_body_id = context->physics_system->create_body(&projectile.transform, projectile.body.shape, false);
+
+		projectiles.push_back(projectile);
+	}
+
+
 	if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
 
 		bitflag = bitflag ^ 07;
@@ -1230,7 +1335,7 @@ void processInput(GLFWwindow* window)
 		cast_ray();
 	}
 
-	r_pressed_in_last_frame = glfwGetKey(window, GLFW_KEY_R) == (GLFW_PRESS || GLFW_REPEAT);
+	r_pressed_in_last_frame = glfwGetKey(window, GLFW_KEY_1) == (GLFW_PRESS || GLFW_REPEAT);
 
 
 	/*

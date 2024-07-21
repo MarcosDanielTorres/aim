@@ -193,10 +193,28 @@ public:
 	std::unordered_map<JPH::BodyID, aim::Components::Transform3D*> body_to_transform_map;
 
 	PhysicsSystem();
+	// Delete copy constructor and assignment operator to prevent copies
+	//PhysicsSystem(const PhysicsSystem&) = delete;
+	//PhysicsSystem& operator=(const PhysicsSystem&) = delete;
+	//static PhysicsSystem& getInstance() {
+	//	std::call_once(initInstanceFlag, &PhysicsSystem::initSingleton);
+	//	return *instance;
+	//}
+
 	JPH::BodyInterface& get_body_interface();
 	void set_debug_camera_pos(glm::vec3 pos);
 	void update_physics(float dt);
 
 	// create the shape on main, and test
 	JPH::BodyID create_body(aim::Components::Transform3D* transform, JPH::Ref<JPH::Shape> shape, bool is_static);
+private:
+	//PhysicsSystem();
+	// Private static method to initialize the instance
+	//static void initSingleton() {
+	//	instance = new PhysicsSystem();
+	//}
+
+	//static PhysicsSystem* instance;
+	//static std::once_flag initInstanceFlag;
+
 };
