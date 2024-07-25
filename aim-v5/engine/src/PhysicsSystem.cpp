@@ -143,10 +143,8 @@ void PhysicsSystem::update_physics(float dt) {
 		this->inner_physics_system.Update(dt, cCollisionSteps, this->temp_allocator, &this->job_system);
 
 
-		// if i comment all of these then it fucking workssssss
 		// Synchronize graphical representations with physics
-		
-
+		// This is just the updating of the graphical objects, which maybe shouldn't be here.
 		auto& lock_interface = this->inner_physics_system.GetBodyLockInterfaceNoLock();
 		for (const JPH::BodyID id : active_body_ids) {
 			auto find_mesh_box = body_to_transform_map.find(id);
@@ -160,10 +158,10 @@ void PhysicsSystem::update_physics(float dt) {
 				const auto& body = lock.GetBody();
 
 				// Update MeshBox's transform based on the body's new position
-				const auto& transform = body.GetCenterOfMassTransform();
-				auto jaja = transform.GetTranslation();
-				auto rotation = transform.GetQuaternion();
-				mesh_transform->pos = glm::vec3(jaja.GetX(), jaja.GetY(), jaja.GetZ());
+				const JPH::RMat44& transform = body.GetCenterOfMassTransform();
+				JPH::Vec3 position = transform.GetTranslation();
+				JPH::Quat rotation = transform.GetQuaternion();
+				mesh_transform->pos = glm::vec3(position.GetX(), position.GetY(), position.GetZ());
 
 				//auto rotation_euler = rotation.GetEulerAngles();
 				//mesh_transform->eulerAngles = glm::vec3(glm::degrees(rotation_euler.GetX()), glm::degrees(rotation_euler.GetY()), glm::degrees(rotation_euler.GetZ()));

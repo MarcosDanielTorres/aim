@@ -2,7 +2,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+
 namespace aim::Components {
+
 	const float deg_45 = 0.785398f; // 45
 	const float deg_90 = 1.5708f; // 45
 	const float deg_120 = 2.0944f; // 45

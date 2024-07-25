@@ -301,8 +301,8 @@ glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
 
 
 // model
-glm::vec3 floor_pos(0.0f, -1.9f, -2.2f);
-glm::vec3 floor_scale(20.0f, 1.0f, 20.0f);
+glm::vec3 floor_pos(0.0f, 0.0f, -2.2f);
+glm::vec3 floor_scale(30.0f, 1.0f, 30.0f);
 glm::vec3 model_bounding_box(floor_scale * 1.0f); // este esta "mal" aca la camara tiene cierta altura pero no es la colision posta con el piso.
 //glm::vec3 model_bounding_box(model_scale / 2.0f); // esta seria la correcta pasa que ahi me queda el centro de la camara donde termina el piso entonces queda la mitad
 // dentro del piso y la mitad arriba.
@@ -435,6 +435,7 @@ void update_physics(float delta_time) {
 
 
 int main() {
+	projectiles.reserve(100);
 	//game game_inst;
 	//create_game(&game_inst);
 
@@ -552,7 +553,7 @@ int main() {
 	Shader Raycast("line_shader.vs", "line_shader.fs");
 
 
-	float vertices[] = {
+	float vertices1[] = {
 		// positions          // normals           // texture coords
 		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
 		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
@@ -597,8 +598,83 @@ int main() {
 		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
 	};
 
+	float vertices[] = {
+    // Back face
+    -0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // Bottom-left
+     0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+     0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 0.0f, // bottom-right         
+     0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+    -0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // bottom-left
+    -0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 1.0f, // top-left
+    // Front face        
+    -0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+     0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 0.0f, // bottom-right
+     0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+     0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+    -0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 1.0f, // top-left
+    -0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+    // Left face         
+    -0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+    -0.5f,  0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-left
+    -0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+    -0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+    -0.5f, -0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+    -0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+    // Right face        
+     0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+     0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+     0.5f,  0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-right         
+     0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+     0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+     0.5f, -0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-left     
+    // Bottom face       
+    -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+     0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 1.0f, // top-left
+     0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+     0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+    -0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+    -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+    // Top face          
+    -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+     0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+     0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 1.0f, // top-right     
+     0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+    -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+    -0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 0.0f  // bottom-left        
+};
+
+
 
 	std::vector<MeshBox> boxes = {
+
+		///////
+		MeshBox(Transform3D(glm::vec3(-3.0f,  1.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(-2.0f,  1.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  1.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  1.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f, 1.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(2.0f, 1.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(3.0f, 1.0f, -5.0f))),
+
+		MeshBox(Transform3D(glm::vec3(-3.0f,  2.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(-2.0f,  2.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  2.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  2.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f, 2.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(2.0f, 2.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(3.0f, 2.0f, -5.0f))),
+
+		MeshBox(Transform3D(glm::vec3(-3.0f,  3.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(-2.0f,  3.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(-1.0f,  3.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(0.0f,  3.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(1.0f, 3.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(2.0f, 3.0f, -5.0f))),
+		MeshBox(Transform3D(glm::vec3(3.0f, 3.0f, -5.0f))),
+
+		///////
+
+
 		MeshBox(Transform3D(glm::vec3(0.0f,  13.0f,  0.0f))),
 		MeshBox(Transform3D(glm::vec3(5.0f,  6.0f, -10.0f))),
 		MeshBox(Transform3D(glm::vec3(-1.5f, 5.2f, -2.5f))),
@@ -794,6 +870,10 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LESS);
+		
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+	glFrontFace(GL_CCW);
 
 		glLineWidth(2.0f);
 		// view/projection transformations
@@ -1126,12 +1206,6 @@ int main() {
 			if (ImGui::DragFloat3("model pos", glm::value_ptr(floor_meshbox.transform.pos), 0.1f)) {
 				floor_meshbox.update_body_shape(physics_system);
 			}
-			if (projectiles.size() > 0) {
-
-				if (ImGui::DragFloat3("una mierda", glm::value_ptr(projectiles[0].transform.pos), 0.1f)) {
-					projectiles[0].update_body_shape(physics_system);
-				}
-			}
 
 			if (ImGui::DragFloat3("model scale", glm::value_ptr(floor_meshbox.transform.scale), 0.05f, 0.1001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 				floor_meshbox.update_body_shape(physics_system);
@@ -1291,19 +1365,27 @@ void processInput(GLFWwindow* window)
 
 	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !r_pressed_in_last_frame) {
 		MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
+
 		// Get the context from the user pointer
 		Context* context = static_cast<Context*>(glfwGetWindowUserPointer(window));
-		//PhysicsSystem& physics_system = PhysicsSystem::getInstance();
 
 		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(projectile.transform.scale.x / 2.0, projectile.transform.scale.y / 2.0, projectile.transform.scale.z / 2.0));
 		floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
 		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
 		JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
 		projectile.set_shape(shape);
-		//projectile.body.physics_body_id = physics_system.create_body(&projectile.transform, projectile.body.shape, false);
-		projectile.body.physics_body_id = context->physics_system->create_body(&projectile.transform, projectile.body.shape, false);
 
 		projectiles.push_back(projectile);
+		INFO("projectiles: %d", projectiles.size());
+
+		//physics_system.get_body_interface().GetShape(my_sphere);
+		//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
+		//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
+		MeshBox& stored_projectile = projectiles.back();
+
+		stored_projectile.body.physics_body_id = context->physics_system->create_body(&stored_projectile.transform, stored_projectile.body.shape, false);
+		JPH::Vec3 direction = JPH::Vec3(curr_camera.forward.x, curr_camera.forward.y, curr_camera.forward.z) * 70.0f;
+		context->physics_system->get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, direction);
 	}
 
 
