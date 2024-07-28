@@ -44,5 +44,7 @@ include(${PHYSICS_REPO_ROOT}/Jolt/Jolt.cmake)
 #target_compile_definitions(Jolt PUBLIC "JPH_DEBUG_RENDERER")
 
 
+include_directories(thirdparty/tinygltf-2.9.2)
+
 add_subdirectory(engine)
 #add_subdirectory(sandbox)

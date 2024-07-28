@@ -41,7 +41,14 @@ JPH_SUPPRESS_WARNINGS
 #include "better_camera.h"
 #include "learnopengl/shader_m.h"
 
-#include <stb_image.h>
+// check this
+#define TINYGLTF_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+//#include <stb_image.h>
+//#include <stb_image_write.h>
+#include "tiny_gltf.h"
+// check this
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -433,8 +440,261 @@ void update_physics(float delta_time) {
 
 }
 
+struct Vertex {
+	glm::vec3 position;
+	glm::vec3 normal;
+	//glm::vec2 texCoords;
+	//glm::vec4 joints; // indices of the joints
+	//glm::vec4 weights; // weights for each joint
+};
+
+struct Mesh {
+	GLuint vao;
+	GLuint vbo;
+	GLuint ebo;
+	size_t indexCount;
+	GLuint materialId;
+};
+
+
+Mesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
+	struct Vertex {
+		glm::vec3 position;
+		float padding1;
+		glm::vec3 normal;
+		float padding2;
+		glm::vec2 aTexCoords; // 8 bytes
+		float padding3[2];    // 8 bytes to align to 16 bytes
+	};
+
+	std::vector<Vertex> vertices;
+	std::vector<uint16_t> indices;
+	GLuint materialId = 0;
+
+	for (const auto& primitive : mesh.primitives) {
+		const auto& posAccessor = model.accessors[primitive.attributes.find("POSITION")->second];
+		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
+		const auto& posBuffer = model.buffers[posBufferView.buffer];
+
+		const auto& normalAccessor = model.accessors[primitive.attributes.find("NORMAL")->second];
+		const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+		const auto& normalBuffer = model.buffers[normalBufferView.buffer];
+
+		if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+			std::cerr << "Error: Unsupported component type in POSITION or NORMAL attribute." << std::endl;
+			continue;
+		}
+
+		const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
+		const float* normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
+
+		for (size_t i = 0; i < posAccessor.count; ++i) {
+			Vertex vertex;
+			vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
+			vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
+			vertex.aTexCoords = glm::vec2(0.0f, 0.0f);
+			vertices.push_back(vertex);
+		}
+
+		const auto& idxAccessor = model.accessors[primitive.indices];
+		const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
+		const auto& idxBuffer = model.buffers[idxBufferView.buffer];
+
+		if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+			std::cerr << "Error: Unsupported component type in indices." << std::endl;
+			continue;
+		}
+
+		const uint16_t* idxData = reinterpret_cast<const uint16_t*>(&idxBuffer.data[idxBufferView.byteOffset + idxAccessor.byteOffset]);
+		indices.insert(indices.end(), idxData, idxData + idxAccessor.count);
+
+		materialId = primitive.material;
+	}
+
+	Mesh result;
+	glGenVertexArrays(1, &result.vao);
+	glBindVertexArray(result.vao);
+
+	glGenBuffers(1, &result.vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, result.vbo);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+	glGenBuffers(1, &result.ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint16_t), indices.data(), GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, aTexCoords));
+	glEnableVertexAttribArray(2);
+
+
+	result.indexCount = indices.size();
+	result.materialId = materialId;
+
+	glBindVertexArray(0);
+
+	return result;
+}
+
+
+
+struct Material {
+	glm::vec4 baseColorFactor;
+	GLuint baseColorTexture;
+};
+
+std::vector<Material> loadMaterials(const tinygltf::Model& model) {
+	std::vector<Material> materials;
+
+	for (const auto& gltfMaterial : model.materials) {
+		Material material;
+		material.baseColorFactor = glm::vec4(1.0f); // Default color factor
+
+		if (gltfMaterial.values.find("baseColorFactor") != gltfMaterial.values.end()) {
+			material.baseColorFactor = glm::vec4(
+				gltfMaterial.values.at("baseColorFactor").ColorFactor()[0],
+				gltfMaterial.values.at("baseColorFactor").ColorFactor()[1],
+				gltfMaterial.values.at("baseColorFactor").ColorFactor()[2],
+				gltfMaterial.values.at("baseColorFactor").ColorFactor()[3]
+			);
+		}
+
+		if (gltfMaterial.values.find("baseColorTexture") != gltfMaterial.values.end()) {
+			const auto& textureIndex = gltfMaterial.values.at("baseColorTexture").TextureIndex();
+			const auto& texture = model.textures[textureIndex];
+			const auto& image = model.images[texture.source];
+			GLuint textureId;
+
+			glGenTextures(1, &textureId);
+			glBindTexture(GL_TEXTURE_2D, textureId);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.width, image.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.image.data());
+			glGenerateMipmap(GL_TEXTURE_2D);
+
+			material.baseColorTexture = textureId;
+		}
+		else {
+			material.baseColorTexture = 0; // No texture
+		}
+
+		materials.push_back(material);
+	}
+
+	return materials;
+}
+
+std::vector<glm::mat4> extractJointMatrices(const tinygltf::Model& model) {
+	std::vector<glm::mat4> jointMatrices;
+
+	for (const auto& skin : model.skins) {
+		for (size_t i = 0; i < skin.joints.size(); ++i) {
+			int jointNodeIndex = skin.joints[i];
+			const auto& jointNode = model.nodes[jointNodeIndex];
+
+			glm::mat4 jointMatrix(1.0f);
+			if (!jointNode.matrix.empty()) {
+				jointMatrix = glm::make_mat4x4(jointNode.matrix.data());
+			}
+			else {
+				if (!jointNode.translation.empty()) {
+					glm::vec3 translation(jointNode.translation[0], jointNode.translation[1], jointNode.translation[2]);
+					jointMatrix = glm::translate(jointMatrix, translation);
+				}
+				if (!jointNode.rotation.empty()) {
+					glm::quat rotation(jointNode.rotation[3], jointNode.rotation[0], jointNode.rotation[1], jointNode.rotation[2]);
+					jointMatrix *= glm::mat4_cast(rotation);
+				}
+				if (!jointNode.scale.empty()) {
+					glm::vec3 scale(jointNode.scale[0], jointNode.scale[1], jointNode.scale[2]);
+					jointMatrix = glm::scale(jointMatrix, scale);
+				}
+			}
+
+			jointMatrices.push_back(jointMatrix);
+		}
+	}
+
+	return jointMatrices;
+}
+
+/*
+
+	TODO GLTF:
+			Make the model loading work even if it doesn't have textures.
+				Look into padding of the textures.
+			Go over the tutorial and render it as I go.
+			See default size of Blender's cube.
+			See how to interact with default values for textures, see how people do this specially when you have multiple options
+
+*/
+
+tinygltf::Model loadGLTFModel() {
+	tinygltf::Model model;
+	tinygltf::TinyGLTF loader;
+	std::string err;
+	std::string warn;
+
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle-yup.glb";
+	//bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
+	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+
+	if (!warn.empty()) {
+		printf("Warn: %s\n", warn.c_str());
+	}
+
+	if (!err.empty()) {
+		printf("Err: %s\n", err.c_str());
+	}
+
+	if (!ret) {
+		printf("Failed to parse glTF\n");
+		exit(EXIT_FAILURE);
+	}
+
+	return model;
+}
 
 int main() {
+	tinygltf::Model model = loadGLTFModel();
+	std::vector<Material> materials = loadMaterials(model);
+
+	INFO("SCENES");
+	for (int i = 0; i < model.scenes.size(); i++) {
+		INFO("%s ", model.scenes[i].name.c_str());
+	}
+
+	INFO("NODES");
+	for (int i = 0; i < model.nodes.size(); i++) {
+		INFO("%s ", model.nodes[i].name.c_str());
+	}
+	INFO("MESHES");
+	for (int i = 0; i < model.meshes.size(); i++) {
+		INFO("%s ", model.meshes[i].name.c_str());
+
+		for (int j = 0; j < model.meshes[i].primitives.size(); j++) {
+			INFO("INDICES %d: ", model.accessors[model.meshes[i].primitives[j].indices]);
+			INFO("-- ATTRIBUTES: ");
+			for (const auto& [key, value] : model.meshes[i].primitives[j].attributes) {
+				INFO("key: %s   value: %d   model.accessors[value] = %s", key.c_str(), value, model.accessors[value].name.c_str());
+			}
+		}
+	}
+	INFO("SKINS");
+	for (int i = 0; i < model.skins.size(); i++) {
+		INFO("%s ", model.skins[i].name.c_str());
+		for (int j = 0; j < model.skins[i].joints.size(); j++) {
+			INFO("%d  == meshes: %s", model.skins[i].joints[j], model.nodes[model.skins[i].joints[j]].name.c_str());
+		}
+	}
+	INFO("ANIMATIONS");
+	for (int i = 0; i < model.animations.size(); i++) {
+		INFO("%s ", model.animations[i].name.c_str());
+	}
+
+
 	projectiles.reserve(100);
 	//game game_inst;
 	//create_game(&game_inst);
@@ -486,6 +746,14 @@ int main() {
 		return -1;
 	}
 	INFO("OpenGL initialized successfully!");
+
+
+
+	std::vector<glm::mat4> jointMatrices = extractJointMatrices(model);
+	std::vector<Mesh> meshes;
+	for (const auto& gltfMesh : model.meshes) {
+		meshes.push_back(createMesh(model, gltfMesh));
+	}
 
 #pragma region imgui
 	// Setup Dear ImGui context
@@ -543,12 +811,13 @@ int main() {
 
 	// build and compile our shader zprogram
 	 // ------------------------------------
-	Shader lightingShader("6.multiple_lights.vs", "6.multiple_lights.fs");
+	Shader lightingShader("6.multiple_lights.vs.glsl", "6.multiple_lights.fs.glsl");
 	//Shader lightingShader("5.2.light_casters.vs", "5.2.light_casters.fs");
 	//Shader lightingShader("5.1.light_casters.vs", "5.1.light_casters.fs");
 	//Shader lightingShader("1.colors.vs", "1.colors.fs");
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
+	Shader gltfShader("gltf.vs", "gltf.fs");
 
 	Shader Raycast("line_shader.vs", "line_shader.fs");
 
@@ -599,49 +868,49 @@ int main() {
 	};
 
 	float vertices[] = {
-    // Back face
-    -0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // Bottom-left
-     0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
-     0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 0.0f, // bottom-right         
-     0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
-    -0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // bottom-left
-    -0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 1.0f, // top-left
-    // Front face        
-    -0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
-     0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 0.0f, // bottom-right
-     0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
-     0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
-    -0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 1.0f, // top-left
-    -0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
-    // Left face         
-    -0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
-    -0.5f,  0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-left
-    -0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
-    -0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
-    -0.5f, -0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-right
-    -0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
-    // Right face        
-     0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
-     0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
-     0.5f,  0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-right         
-     0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
-     0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
-     0.5f, -0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-left     
-    // Bottom face       
-    -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
-     0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 1.0f, // top-left
-     0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
-     0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
-    -0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 0.0f, // bottom-right
-    -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
-    // Top face          
-    -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
-     0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
-     0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 1.0f, // top-right     
-     0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
-    -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
-    -0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 0.0f  // bottom-left        
-};
+		// Back face
+		-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // Bottom-left
+		 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+		 0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 0.0f, // bottom-right         
+		 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+		-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 1.0f, // top-left
+		// Front face        
+		-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+		 0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 0.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+		 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+		-0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 1.0f, // top-left
+		-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+		// Left face         
+		-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+		-0.5f,  0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-left
+		-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+		-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+		-0.5f, -0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+		-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+		// Right face        
+		 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+		 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+		 0.5f,  0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-right         
+		 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+		 0.5f, -0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-left     
+		 // Bottom face       
+		 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+		  0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 1.0f, // top-left
+		  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+		  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+		 -0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+		 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+		 // Top face          
+		 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+		  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+		  0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 1.0f, // top-right     
+		  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+		 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+		 -0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 0.0f  // bottom-left        
+	};
 
 
 
@@ -830,6 +1099,7 @@ int main() {
 	// position attribute
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
+
 	// normal attribute
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(1);
@@ -870,12 +1140,15 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LESS);
-		
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
-	glFrontFace(GL_CCW);
+
+		//glEnable(GL_CULL_FACE);
+		//glCullFace(GL_BACK);
+		//glFrontFace(GL_CCW);
 
 		glLineWidth(2.0f);
+
+
+
 		// view/projection transformations
 		glm::mat4 projection;
 		if (!fps_mode) {
@@ -1041,6 +1314,28 @@ int main() {
 
 		// render floor, is just a plane
 
+
+		 // Render meshes
+		//gltfShader.use();
+		//gltfShader.setMat4("projection", projection);
+		//gltfShader.setMat4("view", view);
+
+		for (const auto& mesh : meshes) {
+			glBindVertexArray(mesh.vao);
+			const Material& material = materials[mesh.materialId];
+
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
+				glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+			lightingShader.setMat4("model", model);
+
+
+			//glUniformMatrix4fv(glGetUniformLocation(lightingShader.ID, "jointMatrices"), jointMatrices.size(), GL_FALSE, glm::value_ptr(jointMatrices[0]));
+			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
+			glBindVertexArray(0);
+		}
+
+
+
 #pragma endregion CUBE_OBJECT
 
 #pragma region LAMP_OBJECT
@@ -1074,6 +1369,9 @@ int main() {
 		}
 
 		//glDrawArrays(GL_TRIANGLES, 0, 36);
+
+
+
 
 #pragma endregion LAMP_OBJECT
 
