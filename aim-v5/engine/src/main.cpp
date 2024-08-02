@@ -33,6 +33,11 @@
 #include <thread>
 #include <cstdarg>
 
+#include <assimp/version.h>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 JPH_SUPPRESS_WARNINGS
 #include "PhysicsSystem.h"
 //#include "jolt_debug_renderer.h"
@@ -40,6 +45,7 @@ JPH_SUPPRESS_WARNINGS
 
 #include "better_camera.h"
 #include "learnopengl/shader_m.h"
+#include "Model.h"
 
 // check this
 #define TINYGLTF_IMPLEMENTATION
@@ -270,10 +276,6 @@ struct PbrBundle {
 
 */
 
-struct Model {
-	Transform3D model_transform;
-	glm::vec3 unlit_color;
-};
 
 
 // settings
@@ -440,15 +442,8 @@ void update_physics(float delta_time) {
 
 }
 
-struct Vertex {
-	glm::vec3 position;
-	glm::vec3 normal;
-	//glm::vec2 texCoords;
-	//glm::vec4 joints; // indices of the joints
-	//glm::vec4 weights; // weights for each joint
-};
 
-struct Mesh {
+struct GLTFMesh {
 	GLuint vao;
 	GLuint vbo;
 	GLuint ebo;
@@ -457,14 +452,16 @@ struct Mesh {
 };
 
 
-Mesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
+GLTFMesh createMesh2(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 	struct Vertex {
 		glm::vec3 position;
 		float padding1;
 		glm::vec3 normal;
 		float padding2;
-		glm::vec2 aTexCoords; // 8 bytes
-		float padding3[2];    // 8 bytes to align to 16 bytes
+		glm::vec2 aTexCoords;
+		float padding3[2];
+		glm::vec4 joints;
+		glm::vec4 weights;
 	};
 
 	std::vector<Vertex> vertices;
@@ -472,15 +469,39 @@ Mesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 	GLuint materialId = 0;
 
 	for (const auto& primitive : mesh.primitives) {
-		const auto& posAccessor = model.accessors[primitive.attributes.find("POSITION")->second];
+		// Position
+		const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
 		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
 		const auto& posBuffer = model.buffers[posBufferView.buffer];
 
-		const auto& normalAccessor = model.accessors[primitive.attributes.find("NORMAL")->second];
+		// Normal
+		const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
 		const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
 		const auto& normalBuffer = model.buffers[normalBufferView.buffer];
 
-		if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+		// Joints
+		auto jointIter = primitive.attributes.find("JOINTS_0");
+		const uint16_t* jointData = nullptr;
+		if (jointIter != primitive.attributes.end()) {
+			const auto& jointAccessor = model.accessors[jointIter->second];
+			const auto& jointBufferView = model.bufferViews[jointAccessor.bufferView];
+			const auto& jointBuffer = model.buffers[jointBufferView.buffer];
+			jointData = reinterpret_cast<const uint16_t*>(&jointBuffer.data[jointBufferView.byteOffset + jointAccessor.byteOffset]);
+		}
+
+		// Weights
+		auto weightIter = primitive.attributes.find("WEIGHTS_0");
+		const float* weightData = nullptr;
+		if (weightIter != primitive.attributes.end()) {
+			const auto& weightAccessor = model.accessors[weightIter->second];
+			const auto& weightBufferView = model.bufferViews[weightAccessor.bufferView];
+			const auto& weightBuffer = model.buffers[weightBufferView.buffer];
+			weightData = reinterpret_cast<const float*>(&weightBuffer.data[weightBufferView.byteOffset + weightAccessor.byteOffset]);
+		}
+
+		// Check component types
+		if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT ||
+			normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
 			std::cerr << "Error: Unsupported component type in POSITION or NORMAL attribute." << std::endl;
 			continue;
 		}
@@ -492,7 +513,17 @@ Mesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 			Vertex vertex;
 			vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
 			vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
-			vertex.aTexCoords = glm::vec2(0.0f, 0.0f);
+			vertex.aTexCoords = glm::vec2(0.0f, 0.0f); // Placeholder, should be set if texcoords are available
+
+			if (jointData && weightData) {
+				vertex.joints = glm::vec4(jointData[i * 4], jointData[i * 4 + 1], jointData[i * 4 + 2], jointData[i * 4 + 3]);
+				vertex.weights = glm::vec4(weightData[i * 4], weightData[i * 4 + 1], weightData[i * 4 + 2], weightData[i * 4 + 3]);
+			}
+			else {
+				vertex.joints = glm::vec4(0.0f);
+				vertex.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+			}
+
 			vertices.push_back(vertex);
 		}
 
@@ -511,7 +542,7 @@ Mesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 		materialId = primitive.material;
 	}
 
-	Mesh result;
+	GLTFMesh result;
 	glGenVertexArrays(1, &result.vao);
 	glBindVertexArray(result.vao);
 
@@ -530,6 +561,134 @@ Mesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, aTexCoords));
 	glEnableVertexAttribArray(2);
 
+	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, joints));
+	glEnableVertexAttribArray(3);
+	glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
+	glEnableVertexAttribArray(4);
+
+	result.indexCount = indices.size();
+	result.materialId = materialId;
+
+	glBindVertexArray(0);
+
+	return result;
+}
+GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
+	struct Vertex {
+		glm::vec3 position;
+		float padding1;
+		glm::vec3 normal;
+		float padding2;
+		glm::vec2 aTexCoords;
+		float padding3[2];
+		glm::vec4 joints;
+		glm::vec4 weights;
+	};
+
+	std::vector<Vertex> vertices;
+	std::vector<uint16_t> indices;
+	GLuint materialId = 0;
+
+	bool hasJointsAndWeights = false;
+
+	for (const auto& primitive : mesh.primitives) {
+		// Position
+		const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
+		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
+		const auto& posBuffer = model.buffers[posBufferView.buffer];
+
+		// Normal
+		const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+		const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+		const auto& normalBuffer = model.buffers[normalBufferView.buffer];
+
+		// Joints and Weights
+		auto jointIter = primitive.attributes.find("JOINTS_0");
+		auto weightIter = primitive.attributes.find("WEIGHTS_0");
+
+		const uint16_t* jointData = nullptr;
+		const float* weightData = nullptr;
+
+		if (jointIter != primitive.attributes.end() && weightIter != primitive.attributes.end()) {
+			hasJointsAndWeights = true;
+			const auto& jointAccessor = model.accessors[jointIter->second];
+			const auto& jointBufferView = model.bufferViews[jointAccessor.bufferView];
+			const auto& jointBuffer = model.buffers[jointBufferView.buffer];
+			jointData = reinterpret_cast<const uint16_t*>(&jointBuffer.data[jointBufferView.byteOffset + jointAccessor.byteOffset]);
+
+			const auto& weightAccessor = model.accessors[weightIter->second];
+			const auto& weightBufferView = model.bufferViews[weightAccessor.bufferView];
+			const auto& weightBuffer = model.buffers[weightBufferView.buffer];
+			weightData = reinterpret_cast<const float*>(&weightBuffer.data[weightBufferView.byteOffset + weightAccessor.byteOffset]);
+		}
+
+		// Check component types
+		if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+			std::cerr << "Error: Unsupported component type in POSITION or NORMAL attribute." << std::endl;
+			continue;
+		}
+
+		const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
+		const float* normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
+
+		for (size_t i = 0; i < posAccessor.count; ++i) {
+			Vertex vertex;
+			vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
+			vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
+			vertex.aTexCoords = glm::vec2(0.0f, 0.0f); // Placeholder, should be set if texcoords are available
+
+			if (hasJointsAndWeights) {
+				vertex.joints = glm::vec4(jointData[i * 4], jointData[i * 4 + 1], jointData[i * 4 + 2], jointData[i * 4 + 3]);
+				vertex.weights = glm::vec4(weightData[i * 4], weightData[i * 4 + 1], weightData[i * 4 + 2], weightData[i * 4 + 3]);
+			}
+			else {
+				vertex.joints = glm::vec4(0.0f);
+				vertex.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+			}
+
+			vertices.push_back(vertex);
+		}
+
+		const auto& idxAccessor = model.accessors[primitive.indices];
+		const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
+		const auto& idxBuffer = model.buffers[idxBufferView.buffer];
+
+		if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+			std::cerr << "Error: Unsupported component type in indices." << std::endl;
+			continue;
+		}
+
+		const uint16_t* idxData = reinterpret_cast<const uint16_t*>(&idxBuffer.data[idxBufferView.byteOffset + idxAccessor.byteOffset]);
+		indices.insert(indices.end(), idxData, idxData + idxAccessor.count);
+
+		materialId = primitive.material;
+	}
+
+	GLTFMesh result;
+	glGenVertexArrays(1, &result.vao);
+	glBindVertexArray(result.vao);
+
+	glGenBuffers(1, &result.vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, result.vbo);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+	glGenBuffers(1, &result.ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint16_t), indices.data(), GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, aTexCoords));
+	glEnableVertexAttribArray(2);
+
+	if (hasJointsAndWeights) {
+		glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, joints));
+		glEnableVertexAttribArray(3);
+		glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
+		glEnableVertexAttribArray(4);
+	}
 
 	result.indexCount = indices.size();
 	result.materialId = materialId;
@@ -585,48 +744,48 @@ std::vector<Material> loadMaterials(const tinygltf::Model& model) {
 	return materials;
 }
 
-std::vector<glm::mat4> extractJointMatrices(const tinygltf::Model& model) {
-	std::vector<glm::mat4> jointMatrices;
-
-	for (const auto& skin : model.skins) {
-		for (size_t i = 0; i < skin.joints.size(); ++i) {
-			int jointNodeIndex = skin.joints[i];
-			const auto& jointNode = model.nodes[jointNodeIndex];
-
-			glm::mat4 jointMatrix(1.0f);
-			if (!jointNode.matrix.empty()) {
-				jointMatrix = glm::make_mat4x4(jointNode.matrix.data());
-			}
-			else {
-				if (!jointNode.translation.empty()) {
-					glm::vec3 translation(jointNode.translation[0], jointNode.translation[1], jointNode.translation[2]);
-					jointMatrix = glm::translate(jointMatrix, translation);
-				}
-				if (!jointNode.rotation.empty()) {
-					glm::quat rotation(jointNode.rotation[3], jointNode.rotation[0], jointNode.rotation[1], jointNode.rotation[2]);
-					jointMatrix *= glm::mat4_cast(rotation);
-				}
-				if (!jointNode.scale.empty()) {
-					glm::vec3 scale(jointNode.scale[0], jointNode.scale[1], jointNode.scale[2]);
-					jointMatrix = glm::scale(jointMatrix, scale);
-				}
-			}
-
-			jointMatrices.push_back(jointMatrix);
-		}
-	}
-
-	return jointMatrices;
-}
+//std::vector<glm::mat4> extractJointMatrices(const tinygltf::Model& model) { std::vector<glm::mat4> jointMatrices;
+//
+//	for (const auto& skin : model.skins) {
+//		for (size_t i = 0; i < skin.joints.size(); ++i) {
+//			int jointNodeIndex = skin.joints[i];
+//			const auto& jointNode = model.nodes[jointNodeIndex];
+//
+//			glm::mat4 jointMatrix(1.0f);
+//			if (!jointNode.matrix.empty()) {
+//				jointMatrix = glm::make_mat4x4(jointNode.matrix.data());
+//			}
+//			else {
+//				if (!jointNode.translation.empty()) {
+//					glm::vec3 translation(jointNode.translation[0], jointNode.translation[1], jointNode.translation[2]);
+//					jointMatrix = glm::translate(jointMatrix, translation);
+//				}
+//				if (!jointNode.rotation.empty()) {
+//					glm::quat rotation(jointNode.rotation[3], jointNode.rotation[0], jointNode.rotation[1], jointNode.rotation[2]);
+//					jointMatrix *= glm::mat4_cast(rotation);
+//				}
+//				if (!jointNode.scale.empty()) {
+//					glm::vec3 scale(jointNode.scale[0], jointNode.scale[1], jointNode.scale[2]);
+//					jointMatrix = glm::scale(jointMatrix, scale);
+//				}
+//			}
+//
+//			jointMatrices.push_back(jointMatrix);
+//		}
+//	}
+//
+//	return jointMatrices;
+//}
 
 /*
 
 	TODO GLTF:
 			Make the model loading work even if it doesn't have textures.
-				Look into padding of the textures.
+				Look into padding of the textures. seems automatic but i will jsut add the padding myself
 			Go over the tutorial and render it as I go.
-			See default size of Blender's cube.
-			See how to interact with default values for textures, see how people do this specially when you have multiple options
+			See default size of Blender's cube. its the opposite of what i do, they specify from center to side and i use the godot convention, a full side:
+				So blender == joltphysics, godot == mine. Consider.
+			See how to interact with default values for textures, see how people do this specially when you have multiple options. a fucking mess
 
 */
 
@@ -636,10 +795,21 @@ tinygltf::Model loadGLTFModel() {
 	std::string err;
 	std::string warn;
 
-	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle-yup.glb";
-	//bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
-	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle-yup.glb";
+	bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+
+	// para este caso escale el cubo de blender a (0.5, 0.5, 0.5) pero asi por si solo no tiene efecto ya que esa info viene en el gltf claramente.
+	// especificamente en: nodes[0].scale, o en json  nodes:[scale:[]]
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube-scaled-down-to-0.5.gltf";
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); 
+
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube-colored.gltf";
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); 
+
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + ".gltf";
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 	if (!warn.empty()) {
 		printf("Warn: %s\n", warn.c_str());
@@ -657,9 +827,358 @@ tinygltf::Model loadGLTFModel() {
 	return model;
 }
 
+struct Keyframe {
+	float time;
+	glm::vec3 translation;
+	glm::quat rotation;
+	glm::vec3 scale;
+};
+
+struct Animation {
+	std::vector<Keyframe> keyframes;
+};
+
+Animation createSimpleAnimation() {
+	Animation animation;
+
+	// Define keyframes
+	Keyframe keyframe1;
+	keyframe1.time = 0.0f;
+	keyframe1.translation = glm::vec3(0.0f, 0.0f, 0.0f);
+	keyframe1.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+	keyframe1.scale = glm::vec3(1.0f, 1.0f, 1.0f);
+
+	Keyframe keyframe2;
+	keyframe2.time = 1.0f;
+	keyframe2.translation = glm::vec3(0.0f, 1.0f, 0.0f);
+	keyframe2.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+	keyframe2.scale = glm::vec3(1.0f, 1.0f, 1.0f);
+
+	Keyframe keyframe3;
+	keyframe3.time = 2.0f;
+	keyframe3.translation = glm::vec3(1.0f, 1.0f, 0.0f);
+	keyframe3.rotation = glm::quat(glm::vec3(0.0f, glm::radians(90.0f), 0.0f));
+	keyframe3.scale = glm::vec3(2.0f, 2.0f, 2.0f);
+
+	animation.keyframes.push_back(keyframe1);
+	animation.keyframes.push_back(keyframe2);
+	animation.keyframes.push_back(keyframe3);
+
+	return animation;
+}
+
+
+struct Joint {
+	int parentIndex;
+	glm::mat4 inverseBindMatrix;
+	glm::mat4 currentTransform;
+};
+
+std::vector<Joint> parseSkeleton(const tinygltf::Model& model) {
+	std::vector<Joint> joints;
+	if (model.skins.empty()) {
+		std::cerr << "Error: No skins found in the model." << std::endl;
+		return joints;
+	}
+
+	const tinygltf::Skin& skin = model.skins[0]; // Assuming the first skin is used
+
+	// Extract inverse bind matrices
+	const tinygltf::Accessor& accessor = model.accessors[skin.inverseBindMatrices];
+	const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+	const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
+	const float* inverseBindMatrices = reinterpret_cast<const float*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+
+	for (size_t i = 0; i < skin.joints.size(); ++i) {
+		Joint joint;
+		joint.parentIndex = -1; // Initialize to -1 (no parent)
+
+		// Load inverse bind matrix
+		glm::mat4 invBindMatrix = glm::make_mat4(&inverseBindMatrices[i * 16]);
+		joint.inverseBindMatrix = invBindMatrix;
+
+		joints.push_back(joint);
+	}
+
+	// Set parent indices based on node hierarchy
+	for (size_t i = 0; i < model.nodes.size(); ++i) {
+		const tinygltf::Node& node = model.nodes[i];
+		if (node.skin != -1) { // This node is part of a skeleton
+			for (size_t j = 0; j < node.children.size(); ++j) {
+				int childIndex = node.children[j];
+				for (size_t k = 0; k < skin.joints.size(); ++k) {
+					if (skin.joints[k] == childIndex) {
+						joints[k].parentIndex = i;
+					}
+				}
+			}
+		}
+	}
+
+	return joints;
+}
+
+
+glm::mat4 interpolateTransform(const Keyframe& kf1, const Keyframe& kf2, float time) {
+	float alpha = (time - kf1.time) / (kf2.time - kf1.time);
+
+	glm::vec3 translation = glm::mix(kf1.translation, kf2.translation, alpha);
+	glm::quat rotation = glm::slerp(kf1.rotation, kf2.rotation, alpha);
+	glm::vec3 scale = glm::mix(kf1.scale, kf2.scale, alpha);
+
+	glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
+	glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
+	glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
+
+	return translationMatrix * rotationMatrix * scaleMatrix;
+}
+
+void updateJointTransforms(const tinygltf::Model& model, std::vector<Joint>& joints, const Animation& animation, float time) {
+	if (model.skins.empty()) return;
+	const tinygltf::Skin& skin = model.skins[0];
+
+	for (size_t i = 0; i < skin.joints.size(); ++i) {
+		int jointIndex = skin.joints[i];
+		if (jointIndex >= model.nodes.size()) {
+			std::cerr << "Error: Joint index out of range." << std::endl;
+			continue;
+		}
+
+		const tinygltf::Node& node = model.nodes[jointIndex];
+
+		// Find the two keyframes to interpolate between
+		Keyframe kf1, kf2;
+		for (size_t j = 0; j < animation.keyframes.size() - 1; ++j) {
+			if (time >= animation.keyframes[j].time && time <= animation.keyframes[j + 1].time) {
+				kf1 = animation.keyframes[j];
+				kf2 = animation.keyframes[j + 1];
+				break;
+			}
+		}
+
+		joints[i].currentTransform = interpolateTransform(kf1, kf2, time);
+	}
+}
+
+
+// Update joint transforms
+void updateJointTransforms2(const tinygltf::Model& model, std::vector<Joint>& joints, float time) {
+	if (model.skins.empty()) return;
+	const tinygltf::Skin& skin = model.skins[0];
+
+	for (size_t i = 0; i < skin.joints.size(); ++i) {
+		int jointIndex = skin.joints[i];
+		if (jointIndex >= model.nodes.size()) {
+			std::cerr << "Error: Joint index out of range." << std::endl;
+			continue;
+		}
+
+		const tinygltf::Node& node = model.nodes[jointIndex];
+
+
+		glm::vec3 translation(0.0f, 0.0f, 0.0f);
+		if (!node.translation.empty()) {
+			translation = glm::vec3(node.translation[0], node.translation[1], node.translation[2]);
+		}
+
+		glm::quat rotation(1.0f, 0.0f, 0.0f, 0.0f);
+		if (!node.rotation.empty()) {
+			rotation = glm::quat(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2]);
+		}
+
+		glm::vec3 scale(1.0f, 1.0f, 1.0f);
+		if (!node.scale.empty()) {
+			scale = glm::vec3(node.scale[0], node.scale[1], node.scale[2]);
+		}
+
+		glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
+		glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
+		glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
+
+		joints[i].currentTransform = translationMatrix * rotationMatrix * scaleMatrix;
+	}
+}
+
+void calculateBoneTransforms(const std::vector<Joint>& joints, std::vector<glm::mat4>& boneTransforms) {
+	boneTransforms.resize(joints.size());
+
+	for (size_t i = 0; i < joints.size(); ++i) {
+		glm::mat4 transform = joints[i].currentTransform;
+
+		int parentIndex = joints[i].parentIndex;
+		while (parentIndex >= 0) {
+			transform = joints[parentIndex].currentTransform * transform;
+			parentIndex = joints[parentIndex].parentIndex;
+		}
+
+		boneTransforms[i] = transform * joints[i].inverseBindMatrix;
+	}
+}
+
+void uploadBoneTransforms(GLuint shaderProgram, const std::vector<glm::mat4>& boneTransforms) {
+	for (size_t i = 0; i < boneTransforms.size(); ++i) {
+		std::string uniformName = "boneTransforms[" + std::to_string(i) + "]";
+		GLuint uniformLocation = glGetUniformLocation(shaderProgram, uniformName.c_str());
+		glUniformMatrix4fv(uniformLocation, 1, GL_FALSE, glm::value_ptr(boneTransforms[i]));
+	}
+}
+
+
+#define MAX_NUM_BONES_PER_VERTEX 4
+
+struct VertexBoneData
+{
+	unsigned int BoneIDs[MAX_NUM_BONES_PER_VERTEX] = { 0 };
+	float Weights[MAX_NUM_BONES_PER_VERTEX] = { 0.0f };
+
+	VertexBoneData()
+	{
+	}
+
+	void AddBoneData(unsigned int BoneID, float Weight)
+	{
+		for (unsigned int i = 0; i < sizeof(BoneIDs) / sizeof(BoneIDs[0]); i++) {
+			if (Weights[i] == 0.0) {
+				BoneIDs[i] = BoneID;
+				Weights[i] = Weight;
+				printf("bone %d weight %f index %i\n", BoneID, Weight, i);
+				return;
+			}
+		}
+
+		// should never get here - more bones than we have space for
+		assert(0);
+	}
+};
+
+
+
+std::vector<VertexBoneData> vertex_to_bones;
+std::vector<int> mesh_base_vertex;
+std::map<std::string, unsigned int> bone_name_to_index_map;
+
+
+
+int get_bone_id(const aiBone* pBone)
+{
+	int bone_id = 0;
+	std::string bone_name(pBone->mName.C_Str());
+
+	if (bone_name_to_index_map.find(bone_name) == bone_name_to_index_map.end()) {
+		// Allocate an index for a new bone
+		bone_id = (int)bone_name_to_index_map.size();
+		bone_name_to_index_map[bone_name] = bone_id;
+	}
+	else {
+		bone_id = bone_name_to_index_map[bone_name];
+	}
+
+	return bone_id;
+}
+
+void parse_single_bone(int mesh_index, const aiBone* pBone)
+{
+	printf("      Bone '%s': num vertices affected by this bone: %d\n", pBone->mName.C_Str(), pBone->mNumWeights);
+
+	int bone_id = get_bone_id(pBone);
+	printf("bone id %d\n", bone_id);
+
+	for (unsigned int i = 0; i < pBone->mNumWeights; i++) {
+		if (i == 0) printf("\n");
+		const aiVertexWeight& vw = pBone->mWeights[i];
+
+		unsigned int global_vertex_id = mesh_base_vertex[mesh_index] + vw.mVertexId;
+		printf("Vertex id %d ", global_vertex_id);
+
+		assert(global_vertex_id < vertex_to_bones.size());
+		vertex_to_bones[global_vertex_id].AddBoneData(bone_id, vw.mWeight);
+	}
+
+	printf("\n");
+}
+
+
+void parse_mesh_bones(int mesh_index, const aiMesh* pMesh)
+{
+	for (unsigned int i = 0; i < pMesh->mNumBones; i++) {
+		parse_single_bone(mesh_index, pMesh->mBones[i]);
+	}
+}
+
+
+void parse_meshes(const aiScene* pScene)
+{
+	printf("*******************************************************\n");
+	printf("Parsing %d meshes\n\n", pScene->mNumMeshes);
+	printf("The root node has %d children\n", pScene->mRootNode->mNumChildren);
+	for (int i = 0; i < pScene->mRootNode->mNumChildren; i++) {
+		printf("Children number %d has %d meshes\n", i, pScene->mRootNode->mChildren[i]->mNumMeshes);
+		if (pScene->mRootNode->mChildren[i]->mNumMeshes > 0) {
+			printf("Cycling over the meshes of children %d\n", i);
+			for (int j = 0; j < pScene->mRootNode->mChildren[i]->mNumMeshes; j++) {
+				printf("The name of the mesh %d for children %d is: %s\n", j, i, pScene->mMeshes[pScene->mRootNode->mChildren[i]->mMeshes[j]]->mName.C_Str());
+			}
+		}
+	}
+	printf("The root node has %d meshes\n", pScene->mRootNode->mNumMeshes);
+	printf("The Scene has %d animations\n\n", pScene->mNumAnimations);
+
+	int total_vertices = 0;
+	int total_indices = 0;
+	int total_bones = 0;
+
+	mesh_base_vertex.resize(pScene->mNumMeshes);
+
+	for (unsigned int i = 0; i < pScene->mNumMeshes; i++) {
+		const aiMesh* pMesh = pScene->mMeshes[i];
+		int num_vertices = pMesh->mNumVertices;
+		int num_indices = pMesh->mNumFaces * 3;
+		int num_bones = pMesh->mNumBones;
+		mesh_base_vertex[i] = total_vertices;
+		printf("  Mesh %d '%s': vertices %d indices %d bones %d\n\n", i, pMesh->mName.C_Str(), num_vertices, num_indices, num_bones);
+		total_vertices += num_vertices;
+		total_indices += num_indices;
+		total_bones += num_bones;
+
+		vertex_to_bones.resize(total_vertices);
+
+		if (pMesh->HasBones()) {
+			parse_mesh_bones(i, pMesh);
+		}
+
+		printf("\n");
+	}
+
+	printf("\nTotal vertices %d total indices %d total bones %d\n", total_vertices, total_indices, total_bones);
+}
+
+void parse_scene(const aiScene* pScene) {
+	parse_meshes(pScene);
+}
+
+void test_assimp() {
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "mono-del-orto.gltf";
+	Assimp::Importer Importer;
+
+	const aiScene* pScene = Importer.ReadFile(model_path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_JoinIdenticalVertices);
+
+	if (!pScene) {
+		FATAL("Error parsing '%s': '%s'\n", model_path, Importer.GetErrorString());
+		return ;
+	}
+
+	parse_scene(pScene);
+
+	printf("Assimp version: %d %d %d %d\n", aiGetVersionMajor(), aiGetVersionMinor(), aiGetVersionPatch(), aiGetVersionRevision());
+
+}
+
+
 int main() {
+	test_assimp();
 	tinygltf::Model model = loadGLTFModel();
 	std::vector<Material> materials = loadMaterials(model);
+	std::vector<Joint> joints = parseSkeleton(model);
 
 	INFO("SCENES");
 	for (int i = 0; i < model.scenes.size(); i++) {
@@ -749,8 +1268,7 @@ int main() {
 
 
 
-	std::vector<glm::mat4> jointMatrices = extractJointMatrices(model);
-	std::vector<Mesh> meshes;
+	std::vector<GLTFMesh> meshes;
 	for (const auto& gltfMesh : model.meshes) {
 		meshes.push_back(createMesh(model, gltfMesh));
 	}
@@ -817,7 +1335,7 @@ int main() {
 	//Shader lightingShader("1.colors.vs", "1.colors.fs");
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
-	Shader gltfShader("gltf.vs", "gltf.fs");
+	//Shader gltfShader("gltf.vs", "gltf.fs");
 
 	Shader Raycast("line_shader.vs", "line_shader.fs");
 
@@ -997,6 +1515,10 @@ int main() {
 
 	};
 
+	// Blender and JoltPhysics specify the scale of a cube from the middle to sides. So a scale of (1, 1, 1) means from the center to side is 1 unit.
+	// In Godot is different, a scale of (1, 1, 1) means for side to side the length is 1.
+
+	// Grid in Blender and Godot are the same size, 1 unit in length
 	for (int i = 0; i < boxes.size(); i++) {
 		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(boxes[i].transform.scale.x / 2.0, boxes[i].transform.scale.y / 2.0, boxes[i].transform.scale.z / 2.0));
 		floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
@@ -1121,6 +1643,7 @@ int main() {
 
 	unsigned int diffuseMap = loadTexture("container2.png");
 	unsigned int specularMap = loadTexture("container2_specular.png");
+	Animation animation = createSimpleAnimation();
 	// render loop
 	// -----------
 	glm::vec3 model_color = glm::vec3(1.0f, 0.5f, 0.31f);
@@ -1180,7 +1703,17 @@ int main() {
 		// lightingShader.set_spot_light(spot_light);
 
 #pragma region LIGHT_RENDERING
+
+		float time = fmod(glfwGetTime(), animation.keyframes.back().time); // Loop animation
+
+
+
 		lightingShader.use();
+
+
+
+
+
 		lightingShader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
 		lightingShader.setInt("material.diffuse", 0);
 		lightingShader.setInt("material.specular", 1);
@@ -1304,35 +1837,83 @@ int main() {
 		// positoin * rotation * scale
 		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
 		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
-		glm::mat4 model = glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos) *
+		glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos) *
 			glm::mat4_cast(floor_meshbox.transform.rot) *
 			glm::scale(glm::mat4(1.0f), floor_meshbox.transform.scale);
 
 
-		lightingShader.setMat4("model", model);
+		lightingShader.setMat4("model", model_mat);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 
 		// render floor, is just a plane
 
+		int bone_matrices_locations[50];
+		// render meshes
+	   //gltfShader.use();
+	   //gltfShader.setMat4("projection", projection);
+	   //gltfShader.setMat4("view", view);
 
-		 // Render meshes
-		//gltfShader.use();
-		//gltfShader.setMat4("projection", projection);
-		//gltfShader.setMat4("view", view);
+		float identity[] = {
+			1.0f, 0.0f, 0.0f, 0.0f, // first column
+			0.0f, 1.0f, 0.0f, 0.0f, // second column
+			0.0f, 0.0f, 1.0f, 0.0f, // third column
+			0.0f, 0.0f, 0.0f, 1.0f // fourth column
+		};
+		std::vector<glm::mat4> boneTransforms;
+		for (int i = 0; i < 50; ++i) {
+			lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", glm::mat4(1.0f));
+			//lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", boneTransforms[i]);
+		}
+		updateJointTransforms2(model, joints, currentFrame);
+
+		// Find the index of the ear joint
+		int earJointIndex = -1;
+		for (size_t i = 0; i < model.nodes.size(); ++i) {
+			if (model.nodes[i].name == "RightEar") { // Change to "LeftEar" if needed
+				earJointIndex = i;
+				break;
+			}
+		}
+
+		// Spin the ear joint
+		if (earJointIndex != -1) {
+			glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), time, glm::vec3(0.0f, 1.0f, 0.0f)); // Rotate around the Z axis
+			joints[earJointIndex].currentTransform = rotationMatrix * joints[earJointIndex].currentTransform;
+		}
+
+		calculateBoneTransforms(joints, boneTransforms);
+		uploadBoneTransforms(lightingShader.ID, boneTransforms);
 
 		for (const auto& mesh : meshes) {
 			glBindVertexArray(mesh.vao);
 			const Material& material = materials[mesh.materialId];
 
-			glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
-				glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
-			lightingShader.setMat4("model", model);
+			lightingShader.setVec4("baseColorFactor", material.baseColorFactor);
+
+			glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+
+			//glm::vec3 extracted_scale = glm::vec3(model.nodes[0].scale[0], model.nodes[0].scale[1], model.nodes[0].scale[2]);
+			//glm::mat4 another_model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
+			//	glm::scale(glm::mat4(1.0f), extracted_scale);
+
+			//lightingShader.setMat4("model", another_model_mat);
+			lightingShader.setMat4("model", model_mat);
+
+			//calculateBoneTransforms(joints, boneTransforms);
+			//uploadBoneTransforms(lightingShader.ID, boneTransforms);
 
 
-			//glUniformMatrix4fv(glGetUniformLocation(lightingShader.ID, "jointMatrices"), jointMatrices.size(), GL_FALSE, glm::value_ptr(jointMatrices[0]));
+
+				//glUniformMatrix4fv(glGetUniformLocation(lightingShader.ID, "jointMatrices"), jointMatrices.size(), GL_FALSE, glm::value_ptr(jointMatrices[0]));
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
 		}
+		for (int i = 0; i < 50; ++i) {
+			lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", glm::mat4(1.0f));
+			//lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", boneTransforms[i]);
+		}
+
 
 
 

@@ -13,6 +13,8 @@ link_directories(../thirdparty/imgui)
 
 include_directories(../thirdparty/JoltPhysics-5.0.0)
 
+include_directories(../thirdparty/assimp-5.2.5/include)
+
 include_directories(./jaja)
 
 
@@ -50,7 +52,7 @@ endif()
 set(Vulkan_INCLUDE_DIR $ENV{VULKAN_SDK}/Include)
 include_directories(${Vulkan_INCLUDE_DIR})
 
-target_link_libraries(Engine PUBLIC glfw opengl32 Vulkan::Vulkan imgui Jolt)
+target_link_libraries(Engine PUBLIC glfw opengl32 Vulkan::Vulkan imgui Jolt assimp)
 
 
 
