@@ -86,7 +86,7 @@ void main()
     // depth visualization
 
     // Apply baseColorFactor to the final color result
-    result *= baseColorFactor.rgb;
+    //result *= baseColorFactor.rgb;
 
     // standard behaviour
     FragColor = vec4(result, 1.0);

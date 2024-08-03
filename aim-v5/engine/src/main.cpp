@@ -79,6 +79,11 @@ struct Context {
 
 struct MeshBox;
 bool r_pressed_in_last_frame = false;
+bool three_pressed_last_frame = false;
+
+int boneCount = 0;
+int display_bone_index = 1;
+unsigned int skel_id = -1;
 
 std::vector<MeshBox> projectiles;
 
@@ -569,129 +574,150 @@ GLTFMesh createMesh2(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 
 	return result;
 }
+
 GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
-	struct Vertex {
-		glm::vec3 position;
-		float padding1;
-		glm::vec3 normal;
-		float padding2;
-		glm::vec2 aTexCoords;
-		float padding3[2];
-		glm::vec4 joints;
-		glm::vec4 weights;
-	};
+    struct Vertex {
+        glm::vec3 position;
+        glm::vec3 normal;
+        glm::vec2 aTexCoords;
+        int joints[4];
+        float weights[4];
+    };
 
-	std::vector<Vertex> vertices;
-	std::vector<uint16_t> indices;
-	GLuint materialId = 0;
+    std::vector<Vertex> vertices;
+    std::vector<uint16_t> indices;
+    GLuint materialId = 0;
+    bool hasJointsAndWeights = false;
 
-	bool hasJointsAndWeights = false;
+    for (const auto& primitive : mesh.primitives) {
+        // Position
+        const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
+        const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
+        const auto& posBuffer = model.buffers[posBufferView.buffer];
 
-	for (const auto& primitive : mesh.primitives) {
-		// Position
-		const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
-		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
-		const auto& posBuffer = model.buffers[posBufferView.buffer];
+        // Normal
+        const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+        const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+        const auto& normalBuffer = model.buffers[normalBufferView.buffer];
 
-		// Normal
-		const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
-		const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
-		const auto& normalBuffer = model.buffers[normalBufferView.buffer];
+        // Joints and Weights
+        auto jointIter = primitive.attributes.find("JOINTS_0");
+        auto weightIter = primitive.attributes.find("WEIGHTS_0");
 
-		// Joints and Weights
-		auto jointIter = primitive.attributes.find("JOINTS_0");
-		auto weightIter = primitive.attributes.find("WEIGHTS_0");
+        const void* jointData = nullptr;
+        const float* weightData = nullptr;
+        int jointComponentType = -1;
+        int jointType = -1;
 
-		const uint16_t* jointData = nullptr;
-		const float* weightData = nullptr;
+        if (jointIter != primitive.attributes.end() && weightIter != primitive.attributes.end()) {
+            hasJointsAndWeights = true;
 
-		if (jointIter != primitive.attributes.end() && weightIter != primitive.attributes.end()) {
-			hasJointsAndWeights = true;
-			const auto& jointAccessor = model.accessors[jointIter->second];
-			const auto& jointBufferView = model.bufferViews[jointAccessor.bufferView];
-			const auto& jointBuffer = model.buffers[jointBufferView.buffer];
-			jointData = reinterpret_cast<const uint16_t*>(&jointBuffer.data[jointBufferView.byteOffset + jointAccessor.byteOffset]);
+            // Joint data
+            const auto& jointAccessor = model.accessors[jointIter->second];
+            const auto& jointBufferView = model.bufferViews[jointAccessor.bufferView];
+            const auto& jointBuffer = model.buffers[jointBufferView.buffer];
+            jointData = &jointBuffer.data[jointBufferView.byteOffset + jointAccessor.byteOffset];
+            jointComponentType = jointAccessor.componentType;
+            jointType = jointAccessor.type;
 
-			const auto& weightAccessor = model.accessors[weightIter->second];
-			const auto& weightBufferView = model.bufferViews[weightAccessor.bufferView];
-			const auto& weightBuffer = model.buffers[weightBufferView.buffer];
-			weightData = reinterpret_cast<const float*>(&weightBuffer.data[weightBufferView.byteOffset + weightAccessor.byteOffset]);
-		}
+            // Weight data
+            const auto& weightAccessor = model.accessors[weightIter->second];
+            const auto& weightBufferView = model.bufferViews[weightAccessor.bufferView];
+            const auto& weightBuffer = model.buffers[weightBufferView.buffer];
+            weightData = reinterpret_cast<const float*>(&weightBuffer.data[weightBufferView.byteOffset + weightAccessor.byteOffset]);
+        }
 
-		// Check component types
-		if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
-			std::cerr << "Error: Unsupported component type in POSITION or NORMAL attribute." << std::endl;
-			continue;
-		}
+        // Check component types
+        if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
+            std::cerr << "Error: Unsupported component type in POSITION or NORMAL attribute." << std::endl;
+            continue;
+        }
 
-		const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
-		const float* normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
+        const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
+        const float* normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
 
-		for (size_t i = 0; i < posAccessor.count; ++i) {
-			Vertex vertex;
-			vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
-			vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
-			vertex.aTexCoords = glm::vec2(0.0f, 0.0f); // Placeholder, should be set if texcoords are available
+        for (size_t i = 0; i < posAccessor.count; ++i) {
+            Vertex vertex;
+            vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
+            vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
+            vertex.aTexCoords = glm::vec2(0.0f, 0.0f); // Placeholder, should be set if texcoords are available
 
-			if (hasJointsAndWeights) {
-				vertex.joints = glm::vec4(jointData[i * 4], jointData[i * 4 + 1], jointData[i * 4 + 2], jointData[i * 4 + 3]);
-				vertex.weights = glm::vec4(weightData[i * 4], weightData[i * 4 + 1], weightData[i * 4 + 2], weightData[i * 4 + 3]);
-			}
-			else {
-				vertex.joints = glm::vec4(0.0f);
-				vertex.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-			}
+            if (hasJointsAndWeights) {
+                for (int j = 0; j < 4; ++j) {
+                    switch (jointComponentType) {
+                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+                            vertex.joints[j] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
+                            break;
+                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+                            vertex.joints[j] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
+                            break;
+                        default:
+                            std::cerr << "Error: Unsupported component type in JOINTS_0 attribute." << std::endl;
+                            break;
+                    }
+                    vertex.weights[j] = weightData[i * 4 + j];
+                }
+            } else {
+                std::fill(std::begin(vertex.joints), std::end(vertex.joints), 0);
+                vertex.weights[0] = 1.0f;
+                std::fill(std::begin(vertex.weights) + 1, std::end(vertex.weights), 0.0f);
+            }
 
-			vertices.push_back(vertex);
-		}
+            // Print joints and weights for debugging
+            std::cout << "Vertex " << i << " Joints: "
+                      << vertex.joints[0] << ", " << vertex.joints[1] << ", " << vertex.joints[2] << ", " << vertex.joints[3] << " Weights: "
+                      << vertex.weights[0] << ", " << vertex.weights[1] << ", " << vertex.weights[2] << ", " << vertex.weights[3] << std::endl;
 
-		const auto& idxAccessor = model.accessors[primitive.indices];
-		const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
-		const auto& idxBuffer = model.buffers[idxBufferView.buffer];
+            vertices.push_back(vertex);
+        }
 
-		if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
-			std::cerr << "Error: Unsupported component type in indices." << std::endl;
-			continue;
-		}
+        const auto& idxAccessor = model.accessors[primitive.indices];
+        const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
+        const auto& idxBuffer = model.buffers[idxBufferView.buffer];
 
-		const uint16_t* idxData = reinterpret_cast<const uint16_t*>(&idxBuffer.data[idxBufferView.byteOffset + idxAccessor.byteOffset]);
-		indices.insert(indices.end(), idxData, idxData + idxAccessor.count);
+        if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+            std::cerr << "Error: Unsupported component type in indices." << std::endl;
+            continue;
+        }
 
-		materialId = primitive.material;
-	}
+        const uint16_t* idxData = reinterpret_cast<const uint16_t*>(&idxBuffer.data[idxBufferView.byteOffset + idxAccessor.byteOffset]);
+        indices.insert(indices.end(), idxData, idxData + idxAccessor.count);
 
-	GLTFMesh result;
-	glGenVertexArrays(1, &result.vao);
-	glBindVertexArray(result.vao);
+        materialId = primitive.material;
+    }
 
-	glGenBuffers(1, &result.vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, result.vbo);
-	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+    GLTFMesh result;
+    glGenVertexArrays(1, &result.vao);
+    glBindVertexArray(result.vao);
 
-	glGenBuffers(1, &result.ebo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint16_t), indices.data(), GL_STATIC_DRAW);
+    glGenBuffers(1, &result.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, result.vbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, aTexCoords));
-	glEnableVertexAttribArray(2);
+    glGenBuffers(1, &result.ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint16_t), indices.data(), GL_STATIC_DRAW);
 
-	if (hasJointsAndWeights) {
-		glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, joints));
-		glEnableVertexAttribArray(3);
-		glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
-		glEnableVertexAttribArray(4);
-	}
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, aTexCoords));
+    glEnableVertexAttribArray(2);
 
-	result.indexCount = indices.size();
-	result.materialId = materialId;
+    if (hasJointsAndWeights) {
+        glVertexAttribIPointer(3, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, joints));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
+        glEnableVertexAttribArray(4);
+    }
 
-	glBindVertexArray(0);
+    result.indexCount = indices.size();
+    result.materialId = materialId;
 
-	return result;
+    glBindVertexArray(0);
+
+    return result;
 }
 
 
@@ -804,7 +830,7 @@ tinygltf::Model loadGLTFModel() {
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube-colored.gltf";
 	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); 
 
-	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + ".gltf";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "mono-puto.gltf";
 	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 	if (!warn.empty()) {
@@ -819,6 +845,13 @@ tinygltf::Model loadGLTFModel() {
 		printf("Failed to parse glTF\n");
 		exit(EXIT_FAILURE);
 	}
+
+
+	for (const auto& skin : model.skins) {
+		boneCount += skin.joints.size();
+	}
+
+	INFO("There are %d bones", boneCount);
 
 	return model;
 }
@@ -1214,7 +1247,8 @@ int main() {
 	//Shader lightingShader("1.colors.vs", "1.colors.fs");
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
-	//Shader gltfShader("gltf.vs", "gltf.fs");
+	Shader skel_shader("skel_shader.vs.glsl", "skel_shader.fs.glsl");
+	skel_id = skel_shader.ID;
 
 	Shader Raycast("line_shader.vs", "line_shader.fs");
 
@@ -1723,74 +1757,27 @@ int main() {
 
 		lightingShader.setMat4("model", model_mat);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
-
 		// render floor, is just a plane
 
-		int bone_matrices_locations[50];
-		// render meshes
-	   //gltfShader.use();
-	   //gltfShader.setMat4("projection", projection);
-	   //gltfShader.setMat4("view", view);
 
-		float identity[] = {
-			1.0f, 0.0f, 0.0f, 0.0f, // first column
-			0.0f, 1.0f, 0.0f, 0.0f, // second column
-			0.0f, 0.0f, 1.0f, 0.0f, // third column
-			0.0f, 0.0f, 0.0f, 1.0f // fourth column
-		};
-		std::vector<glm::mat4> boneTransforms;
-		for (int i = 0; i < 50; ++i) {
-			lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", glm::mat4(1.0f));
-			//lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", boneTransforms[i]);
-		}
-		updateJointTransforms2(model, joints, currentFrame);
 
-		// Find the index of the ear joint
-		int earJointIndex = -1;
-		for (size_t i = 0; i < model.nodes.size(); ++i) {
-			if (model.nodes[i].name == "RightEar") { // Change to "LeftEar" if needed
-				earJointIndex = i;
-				break;
-			}
-		}
 
-		// Spin the ear joint
-		if (earJointIndex != -1) {
-			glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), time, glm::vec3(0.0f, 1.0f, 0.0f)); // Rotate around the Z axis
-			joints[earJointIndex].currentTransform = rotationMatrix * joints[earJointIndex].currentTransform;
-		}
-
-		calculateBoneTransforms(joints, boneTransforms);
-		uploadBoneTransforms(lightingShader.ID, boneTransforms);
+		skel_shader.use();
+		skel_shader.setMat4("projection", projection);
+		skel_shader.setMat4("view", view);
 
 		for (const auto& mesh : meshes) {
 			glBindVertexArray(mesh.vao);
-			const Material& material = materials[mesh.materialId];
 
-			lightingShader.setVec4("baseColorFactor", material.baseColorFactor);
+			const Material& material = materials[mesh.materialId];
 
 			glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
 				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
-			//glm::vec3 extracted_scale = glm::vec3(model.nodes[0].scale[0], model.nodes[0].scale[1], model.nodes[0].scale[2]);
-			//glm::mat4 another_model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
-			//	glm::scale(glm::mat4(1.0f), extracted_scale);
+			skel_shader.setMat4("model", model_mat);
 
-			//lightingShader.setMat4("model", another_model_mat);
-			lightingShader.setMat4("model", model_mat);
-
-			//calculateBoneTransforms(joints, boneTransforms);
-			//uploadBoneTransforms(lightingShader.ID, boneTransforms);
-
-
-
-				//glUniformMatrix4fv(glGetUniformLocation(lightingShader.ID, "jointMatrices"), jointMatrices.size(), GL_FALSE, glm::value_ptr(jointMatrices[0]));
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-		}
-		for (int i = 0; i < 50; ++i) {
-			lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", glm::mat4(1.0f));
-			//lightingShader.setMat4("boneTransforms[" + std::to_string(i) + "]", boneTransforms[i]);
 		}
 
 
@@ -2121,6 +2108,15 @@ void processInput(GLFWwindow* window)
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
+	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS && !three_pressed_last_frame) {
+		display_bone_index++;
+		display_bone_index = display_bone_index % boneCount;
+		glUseProgram(skel_id);
+		glUniform1i(glGetUniformLocation(skel_id, "gDisplayBoneIndex"), display_bone_index);
+		INFO("display bone index: %d", display_bone_index);
+	}
+
+
 	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !r_pressed_in_last_frame) {
 		MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
 
@@ -2176,6 +2172,7 @@ void processInput(GLFWwindow* window)
 	}
 
 	r_pressed_in_last_frame = glfwGetKey(window, GLFW_KEY_1) == (GLFW_PRESS || GLFW_REPEAT);
+	three_pressed_last_frame = glfwGetKey(window, GLFW_KEY_3) == (GLFW_PRESS || GLFW_REPEAT);
 
 
 	/*
