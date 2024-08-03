@@ -1,5 +1,6 @@
 #pragma once
 
+/*
 #include <stb_image.h>
 #include <stb_image_write.h>
 
@@ -209,3 +210,4 @@ unsigned int TextureFromFile(const char *path, const std::string &directory)
 
     return textureID;
 }
+*/

@@ -46,8 +46,7 @@ include(${PHYSICS_REPO_ROOT}/Jolt/Jolt.cmake)
 
 include_directories(thirdparty/tinygltf-2.9.2)
 
-add_subdirectory(thirdparty/assimp-5.2.5)
-include_directories(thirdparty/assimp-5.2.5/include)
+
 
 add_subdirectory(engine)
 #add_subdirectory(sandbox)
