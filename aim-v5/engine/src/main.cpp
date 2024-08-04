@@ -1088,7 +1088,8 @@ std::vector<int> mesh_base_vertex;
 std::map<std::string, unsigned int> bone_name_to_index_map;
 
 
-void get_first_bind_matrix(const tinygltf::Model& model) {
+std::vector<glm::mat4> get_inverse_bind_matrix(const tinygltf::Model& model) {
+	std::vector<glm::mat4> result;
 	for (int i = 0; i < model.skins.size(); i++) {
 		auto inverse_bind_matrix_index = model.skins[i].inverseBindMatrices;
 		auto accessor = model.accessors[inverse_bind_matrix_index];
@@ -1100,22 +1101,38 @@ void get_first_bind_matrix(const tinygltf::Model& model) {
 		// Ensure the data is a MAT4 (4x4 matrix)
 		if (accessor.type != TINYGLTF_TYPE_MAT4 || accessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
 			std::cerr << "Expected a MAT4 with float components" << std::endl;
-			return;
+			return std::vector<glm::mat4>();
 		}
-		const float* inverse_bind_matrix_data = reinterpret_cast<const float*>( &inverse_bind_matrix_buffer.data[offset ]);
-		 // Print the first matrix (16 floats)
-        for (int j = 0; j < 16; ++j) {
-            std::cout << inverse_bind_matrix_data[j] << " ";
-            if ((j + 1) % 4 == 0) std::cout << std::endl;  // Print in 4x4 format
-        }
+
+		for (int k = 0; k < accessor.count; ++k) {
+			const float* matrix = reinterpret_cast<const float*>(&inverse_bind_matrix_buffer.data[offset + i * sizeof(float) * 16]);
+			result.push_back(glm::make_mat4(matrix));
+		}
+	}
+	return result;
+}
+
+void print_matrix(const glm::mat4& mat) {
+	std::cout << "--------------------------\n";
+	for (int i = 0; i < 4; ++i) {
+		for (int j = 0; j < 4; ++j) {
+			std::cout << mat[i][j] << " ";
+		}
+		std::cout << "\n";
 	}
 }
+
 
 int main() {
 	tinygltf::Model model = loadGLTFModel();
 	std::vector<Material> materials = loadMaterials(model);
 	std::vector<Joint> joints = parseSkeleton(model);
-	get_first_bind_matrix(model);
+	auto mats = get_inverse_bind_matrix(model);
+	INFO("Amount of mats: %d", mats.size());
+	print_matrix(mats[0]);
+	print_matrix(mats[1]);
+	print_matrix(mats[2]);
+	print_matrix(mats[3]);
 
 	INFO("SCENES");
 	for (int i = 0; i < model.scenes.size(); i++) {
@@ -1786,7 +1803,7 @@ int main() {
 
 
 
-
+		// skere
 		skel_shader.use();
 		skel_shader.setMat4("projection", projection);
 		skel_shader.setMat4("view", view);
@@ -1796,7 +1813,7 @@ int main() {
 
 			const Material& material = materials[mesh.materialId];
 
-			glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+			glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 5.0f, 10.0f)) *
 				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
 			skel_shader.setMat4("model", model_mat);
