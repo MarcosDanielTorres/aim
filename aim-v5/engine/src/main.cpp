@@ -33,6 +33,7 @@
 #include <thread>
 #include <cstdarg>
 
+#define PART_1
 
 JPH_SUPPRESS_WARNINGS
 #include "PhysicsSystem.h"
@@ -576,6 +577,7 @@ GLTFMesh createMesh2(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 }
 
 GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
+	GLint* bone_ids = NULL; // array of bone IDs
 	struct Vertex {
 		glm::vec3 position;
 		glm::vec3 normal;
@@ -588,13 +590,17 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 	std::vector<uint16_t> indices;
 	GLuint materialId = 0;
 	bool hasJointsAndWeights = false;
+	int count = 0;
 
+	// por ahora solo cicla una vez porque no hay mas de una `primitive`
 	for (const auto& primitive : mesh.primitives) {
 		// Position
 		const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
 		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
 		const auto& posBuffer = model.buffers[posBufferView.buffer];
+		count = posAccessor.count;
 
+		bone_ids = (int*)malloc(posAccessor.count * sizeof(int));
 		// Normal
 		const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
 		const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
@@ -657,6 +663,23 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 					}
 					vertex.weights[j] = weightData[i * 4 + j];
 				}
+
+				for (int j = 0; j < 4; ++j) { // Assuming 4 influences per vertex
+					if (weightData[i * 4 + j] >= 0.5f) {
+						switch (jointComponentType) {
+						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+							bone_ids[i] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
+							break;
+						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+							bone_ids[i] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
+							break;
+						default:
+							std::cerr << "Error: Unsupported component type in JOINTS_0 attribute." << std::endl;
+							break;
+						}
+						break;
+					}
+				}
 			}
 			else {
 				std::fill(std::begin(vertex.joints), std::end(vertex.joints), 0);
@@ -675,6 +698,11 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 		const auto& idxAccessor = model.accessors[primitive.indices];
 		const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
 		const auto& idxBuffer = model.buffers[idxBufferView.buffer];
+
+		std::cout << "BONES\n" << std::endl;
+		for (int i = 0; i < posAccessor.count; i++) {
+			std::cout << "Vertex" << i << ": " << bone_ids[i] << std::endl;
+		}
 
 		if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
 			std::cerr << "Error: Unsupported component type in indices." << std::endl;
@@ -707,10 +735,23 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 	glEnableVertexAttribArray(2);
 
 	if (hasJointsAndWeights) {
+#ifdef PART_1
+		if (bone_ids) {
+			GLuint vbo;
+			glGenBuffers(1, &vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, vbo);
+			glBufferData(GL_ARRAY_BUFFER, count * sizeof(GLint), bone_ids, GL_STATIC_DRAW);
+			glVertexAttribIPointer(3, 1, GL_INT, 0, NULL);
+			glEnableVertexAttribArray(3);
+			free(bone_ids);
+		}
+
+#else
 		glVertexAttribIPointer(3, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, joints));
 		glEnableVertexAttribArray(3);
 		glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
 		glEnableVertexAttribArray(4);
+#endif
 	}
 
 	result.indexCount = indices.size();
@@ -1104,8 +1145,8 @@ std::vector<glm::mat4> get_inverse_bind_matrix(const tinygltf::Model& model) {
 			return std::vector<glm::mat4>();
 		}
 
-		for (int k = 0; k < accessor.count; ++k) {
-			const float* matrix = reinterpret_cast<const float*>(&inverse_bind_matrix_buffer.data[offset + i * sizeof(float) * 16]);
+		for (size_t k = 0; k < accessor.count; ++k) {
+			const float* matrix = reinterpret_cast<const float*>(&inverse_bind_matrix_buffer.data[offset + k * sizeof(float) * 16]);
 			result.push_back(glm::make_mat4(matrix));
 		}
 	}
@@ -1289,7 +1330,11 @@ int main() {
 	//Shader lightingShader("1.colors.vs", "1.colors.fs");
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
+#ifdef PART_1
+	Shader skel_shader("skel_shader-anton-part-1.vs.glsl", "skel_shader-anton-part-1.fs.glsl");
+#else
 	Shader skel_shader("skel_shader.vs.glsl", "skel_shader.fs.glsl");
+#endif
 	skel_id = skel_shader.ID;
 
 	Shader Raycast("line_shader.vs", "line_shader.fs");
@@ -1603,6 +1648,9 @@ int main() {
 	// -----------
 	glm::vec3 model_color = glm::vec3(1.0f, 0.5f, 0.31f);
 
+	float theta = 0.0f;
+	float rot_speed = 1.0f;
+	int bone_matrices_locations[32];
 	while (!glfwWindowShouldClose(window))
 	{
 		float currentFrame = static_cast<float>(glfwGetTime());
@@ -1804,7 +1852,49 @@ int main() {
 
 
 		// skere
+
 		skel_shader.use();
+
+		float identity[] = {
+			1.0f, 0.0f, 0.0f, 0.0f, // first column
+			0.0f, 1.0f, 0.0f, 0.0f, // second column
+			0.0f, 0.0f, 1.0f, 0.0f, // third column
+			0.0f, 0.0f, 0.0f, 1.0f //
+		};
+
+		char name[64];
+
+		for (int i = 0; i < 32; i++) {
+		  sprintf (name, "bone_matrices[%i]", i);
+		  bone_matrices_locations[i] = glGetUniformLocation (skel_shader.ID, name);
+		  glUniformMatrix4fv (bone_matrices_locations[i], 1, GL_FALSE, identity);
+		}
+
+		glm::mat4 left_ear_mat = glm::mat4(1.0f);
+
+		if (glfwGetKey(window, 'Z') == GLFW_PRESS) {
+			std::cout << "zzzz";
+				theta += rot_speed * deltaTime;
+				left_ear_mat = glm::inverse(mats[1]) * glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0, 1.0, 0.0)) * mats[1];
+				glUniformMatrix4fv (bone_matrices_locations[1], 1, GL_FALSE, &left_ear_mat[0][0]);
+
+				left_ear_mat = glm::inverse(mats[2]) * glm::rotate(glm::mat4(1.0f), -theta, glm::vec3(0.0, 1.0, 0.0)) * mats[2];
+				glUniformMatrix4fv (bone_matrices_locations[2], 1, GL_FALSE, &left_ear_mat[0][0]);
+		}
+
+		if (glfwGetKey(window, 'X') == GLFW_PRESS) {
+			std::cout << "xxxx";
+			theta -= rot_speed * deltaTime;
+			left_ear_mat = glm::inverse(mats[1]) * glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0, 1.0, 0.0)) * mats[1];
+			glUniformMatrix4fv (bone_matrices_locations[1], 1, GL_FALSE, &left_ear_mat[0][0]);
+			left_ear_mat = glm::inverse(mats[2]) * glm::rotate(glm::mat4(1.0f), -theta, glm::vec3(0.0, 1.0, 0.0)) * mats[2];
+			glUniformMatrix4fv (bone_matrices_locations[2], 1, GL_FALSE, &left_ear_mat[0][0]);
+		}
+
+		if (glfwGetKey(window, 'X') == GLFW_RELEASE && glfwGetKey(window, 'Z') == GLFW_RELEASE) {
+			theta = 0.0f;
+		}
+
 		skel_shader.setMat4("projection", projection);
 		skel_shader.setMat4("view", view);
 

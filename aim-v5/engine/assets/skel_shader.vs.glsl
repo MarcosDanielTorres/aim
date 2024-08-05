@@ -22,20 +22,6 @@ uniform mat4 projection;
 uniform mat4 finalBonesMatrices[50]; // Adjust the size as needed
 
 void main() {
-    //vec4 totalPosition = vec4(0.0f);
-    //for(int i = 0 ; i < MAX_BONE_INFLUENCE ; i++)
-    //{
-    //    if(boneIds[i] == -1) 
-    //        continue;
-    //    if(boneIds[i] >=MAX_BONES) 
-    //    {
-    //        totalPosition = vec4(aPos,1.0f);
-    //        break;
-    //    }
-    //    vec4 localPosition = finalBonesMatrices[boneIds[i]] * vec4(aPos,1.0f);
-    //    totalPosition += localPosition * weights[i];
-    //}
-
     gl_Position = projection * view * model * vec4(aPos, 1.0);
 	TexCoord0 = aTexCoords;
 	Normal0 = aNormal;

@@ -11,6 +11,7 @@ uniform int gDisplayBoneIndex;
 out vec4 FragColor;
 
 void main() {
+
 	bool found = false;
 	for(int i = 0; i < 4; i++) {
 		if (BoneIds0[i] == gDisplayBoneIndex) {
