@@ -33,7 +33,7 @@
 #include <thread>
 #include <cstdarg>
 
-#define PART_1
+#define PART_11
 
 JPH_SUPPRESS_WARNINGS
 #include "PhysicsSystem.h"
@@ -582,29 +582,104 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 		glm::vec3 position;
 		glm::vec3 normal;
 		glm::vec2 aTexCoords;
+#ifdef PART_1
+		glm::vec4 joints;
+		glm::vec4 weights;
+#else
 		int joints[4];
 		float weights[4];
+#endif
+	};
+
+	struct VertexSas {
+		glm::vec3 pos;
+		glm::vec3 normal;
+		glm::vec2 uv;
+		glm::vec4 jointIndices;
+		glm::vec4 jointWeights;
 	};
 
 	std::vector<Vertex> vertices;
 	std::vector<uint16_t> indices;
 	GLuint materialId = 0;
 	bool hasJointsAndWeights = false;
-	int count = 0;
+	int vertex_count = 0;
 
 	// por ahora solo cicla una vez porque no hay mas de una `primitive`
 	for (const auto& primitive : mesh.primitives) {
-		// Position
+		// Indices
+		//{
+		//	const tinygltf::Accessor &  accessor   = input.accessors[glTFPrimitive.indices];
+		//	const tinygltf::BufferView &bufferView = input.bufferViews[accessor.bufferView];
+		//	const tinygltf::Buffer &    buffer     = input.buffers[bufferView.buffer];
+
+		//	indexCount += static_cast<uint32_t>(accessor.count);
+
+		//	// glTF supports different component types of indices
+		//	switch (accessor.componentType)
+		//	{
+		//		case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
+		//			const uint32_t* buf = reinterpret_cast<const uint32_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
+		//			for (size_t index = 0; index < accessor.count; index++)
+		//			{
+		//				indexBuffer.push_back(buf[index] + vertexStart);
+		//			}
+		//			break;
+		//		}
+		//		case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {
+		//			const uint16_t* buf = reinterpret_cast<const uint16_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
+		//			for (size_t index = 0; index < accessor.count; index++)
+		//			{
+		//				indexBuffer.push_back(buf[index] + vertexStart);
+		//			}
+		//			break;
+		//		}
+		//		case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE: {
+		//			const uint8_t* buf = reinterpret_cast<const uint8_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
+		//			for (size_t index = 0; index < accessor.count; index++)
+		//			{
+		//				indexBuffer.push_back(buf[index] + vertexStart);
+		//			}
+		//			break;
+		//		}
+		//		default:
+		//			std::cerr << "Index component type " << accessor.componentType << " not supported!" << std::endl;
+		//			return;
+		//	}
+		//}
+
+
+
+
+
+
+
+	// 
+	// 
+	/////////////////////////////////////////////////
+
+
+
+
+
+
+	// Position
 		const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
 		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
 		const auto& posBuffer = model.buffers[posBufferView.buffer];
-		count = posAccessor.count;
+		vertex_count = posAccessor.count;
 
 		bone_ids = (int*)malloc(posAccessor.count * sizeof(int));
-		// Normal
-		const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
-		const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
-		const auto& normalBuffer = model.buffers[normalBufferView.buffer];
+
+		// Normal TEXCOORD_0
+		auto normalIter = primitive.attributes.find("NORMAL");
+		const float* normalData = nullptr;
+		if (normalIter != primitive.attributes.end()) {
+			const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+			const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+			const auto& normalBuffer = model.buffers[normalBufferView.buffer];
+			normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
+		}
 
 		// Joints and Weights
 		auto jointIter = primitive.attributes.find("JOINTS_0");
@@ -614,6 +689,7 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 		const float* weightData = nullptr;
 		int jointComponentType = -1;
 		int jointType = -1;
+		size_t jointStride = 0;
 
 		if (jointIter != primitive.attributes.end() && weightIter != primitive.attributes.end()) {
 			hasJointsAndWeights = true;
@@ -625,7 +701,7 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 			jointData = &jointBuffer.data[jointBufferView.byteOffset + jointAccessor.byteOffset];
 			jointComponentType = jointAccessor.componentType;
 			jointType = jointAccessor.type;
-
+			jointStride = jointBufferView.byteStride ? jointBufferView.byteStride : (jointAccessor.type == TINYGLTF_TYPE_VEC4 ? 4 * tinygltf::GetComponentSizeInBytes(jointComponentType) : 0);
 			// Weight data
 			const auto& weightAccessor = model.accessors[weightIter->second];
 			const auto& weightBufferView = model.bufferViews[weightAccessor.bufferView];
@@ -633,29 +709,30 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 			weightData = reinterpret_cast<const float*>(&weightBuffer.data[weightBufferView.byteOffset + weightAccessor.byteOffset]);
 		}
 
-		// Check component types
-		if (posAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT || normalAccessor.componentType != TINYGLTF_COMPONENT_TYPE_FLOAT) {
-			std::cerr << "Error: Unsupported component type in POSITION or NORMAL attribute." << std::endl;
-			continue;
-		}
-
 		const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
-		const float* normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
 
 		for (size_t i = 0; i < posAccessor.count; ++i) {
 			Vertex vertex;
 			vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
-			vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
+			if (normalData) {
+				vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
+			}
+			else {
+				vertex.normal = glm::vec3(0.0f, 0.0f, 0.0f);
+			}
 			vertex.aTexCoords = glm::vec2(0.0f, 0.0f); // Placeholder, should be set if texcoords are available
 
 			if (hasJointsAndWeights) {
 				for (int j = 0; j < 4; ++j) {
+					size_t offset = i * jointStride + j * tinygltf::GetComponentSizeInBytes(jointComponentType);
 					switch (jointComponentType) {
 					case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-						vertex.joints[j] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
+						//vertex.joints[j] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
+						vertex.joints[j] = *reinterpret_cast<const uint8_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
 						break;
 					case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-						vertex.joints[j] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
+						vertex.joints[j] = *reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
+						//vertex.joints[j] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
 						break;
 					default:
 						std::cerr << "Error: Unsupported component type in JOINTS_0 attribute." << std::endl;
@@ -664,14 +741,17 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 					vertex.weights[j] = weightData[i * 4 + j];
 				}
 
-				for (int j = 0; j < 4; ++j) { // Assuming 4 influences per vertex
+				for (int j = 0; j < 4; ++j) {
 					if (weightData[i * 4 + j] >= 0.5f) {
+						size_t offset = i * jointStride + j * tinygltf::GetComponentSizeInBytes(jointComponentType);
 						switch (jointComponentType) {
 						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-							bone_ids[i] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
+							bone_ids[i] = *reinterpret_cast<const uint8_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
+							//bone_ids[i] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
 							break;
 						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-							bone_ids[i] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
+							bone_ids[i] = *reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
+							//bone_ids[i] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
 							break;
 						default:
 							std::cerr << "Error: Unsupported component type in JOINTS_0 attribute." << std::endl;
@@ -682,9 +762,14 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 				}
 			}
 			else {
+#ifdef PART_1
+				vertex.joints = glm::vec4(0.0f);
+				vertex.weights = glm::vec4(0.0f);
+#else
 				std::fill(std::begin(vertex.joints), std::end(vertex.joints), 0);
 				vertex.weights[0] = 1.0f;
 				std::fill(std::begin(vertex.weights) + 1, std::end(vertex.weights), 0.0f);
+#endif
 			}
 
 			// Print joints and weights for debugging
@@ -695,15 +780,18 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 			vertices.push_back(vertex);
 		}
 
+		std::cout << "BONES\n" << std::endl;
+		for (int i = 0; i < vertex_count; i++) {
+			std::cout << "Vertex" << i << ": " << bone_ids[i] << std::endl;
+		}
+
 		const auto& idxAccessor = model.accessors[primitive.indices];
 		const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
 		const auto& idxBuffer = model.buffers[idxBufferView.buffer];
 
-		std::cout << "BONES\n" << std::endl;
-		for (int i = 0; i < posAccessor.count; i++) {
-			std::cout << "Vertex" << i << ": " << bone_ids[i] << std::endl;
-		}
 
+
+		TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE;
 		if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
 			std::cerr << "Error: Unsupported component type in indices." << std::endl;
 			continue;
@@ -740,7 +828,7 @@ GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
 			GLuint vbo;
 			glGenBuffers(1, &vbo);
 			glBindBuffer(GL_ARRAY_BUFFER, vbo);
-			glBufferData(GL_ARRAY_BUFFER, count * sizeof(GLint), bone_ids, GL_STATIC_DRAW);
+			glBufferData(GL_ARRAY_BUFFER, vertex_count * sizeof(GLint), bone_ids, GL_STATIC_DRAW);
 			glVertexAttribIPointer(3, 1, GL_INT, 0, NULL);
 			glEnableVertexAttribArray(3);
 			free(bone_ids);
@@ -872,7 +960,7 @@ tinygltf::Model loadGLTFModel() {
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube-colored.gltf";
 	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); 
 
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "mono-puto.gltf";
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "hello.gltf";
 	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 	if (!warn.empty()) {
@@ -1170,10 +1258,9 @@ int main() {
 	std::vector<Joint> joints = parseSkeleton(model);
 	auto mats = get_inverse_bind_matrix(model);
 	INFO("Amount of mats: %d", mats.size());
-	print_matrix(mats[0]);
-	print_matrix(mats[1]);
-	print_matrix(mats[2]);
-	print_matrix(mats[3]);
+	for (int i = 0; i < mats.size(); i++) {
+		print_matrix(mats[i]);
+	}
 
 	INFO("SCENES");
 	for (int i = 0; i < model.scenes.size(); i++) {
@@ -1865,30 +1952,30 @@ int main() {
 		char name[64];
 
 		for (int i = 0; i < 32; i++) {
-		  sprintf (name, "bone_matrices[%i]", i);
-		  bone_matrices_locations[i] = glGetUniformLocation (skel_shader.ID, name);
-		  glUniformMatrix4fv (bone_matrices_locations[i], 1, GL_FALSE, identity);
+			sprintf(name, "bone_matrices[%i]", i);
+			bone_matrices_locations[i] = glGetUniformLocation(skel_shader.ID, name);
+			glUniformMatrix4fv(bone_matrices_locations[i], 1, GL_FALSE, identity);
 		}
 
 		glm::mat4 left_ear_mat = glm::mat4(1.0f);
 
 		if (glfwGetKey(window, 'Z') == GLFW_PRESS) {
 			std::cout << "zzzz";
-				theta += rot_speed * deltaTime;
-				left_ear_mat = glm::inverse(mats[1]) * glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0, 1.0, 0.0)) * mats[1];
-				glUniformMatrix4fv (bone_matrices_locations[1], 1, GL_FALSE, &left_ear_mat[0][0]);
+			theta += rot_speed * deltaTime;
+			left_ear_mat = glm::inverse(mats[1]) * glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0, 1.0, 0.0)) * mats[1];
+			glUniformMatrix4fv(bone_matrices_locations[1], 1, GL_FALSE, &left_ear_mat[0][0]);
 
-				left_ear_mat = glm::inverse(mats[2]) * glm::rotate(glm::mat4(1.0f), -theta, glm::vec3(0.0, 1.0, 0.0)) * mats[2];
-				glUniformMatrix4fv (bone_matrices_locations[2], 1, GL_FALSE, &left_ear_mat[0][0]);
+			left_ear_mat = glm::inverse(mats[2]) * glm::rotate(glm::mat4(1.0f), -theta, glm::vec3(0.0, 1.0, 0.0)) * mats[2];
+			glUniformMatrix4fv(bone_matrices_locations[2], 1, GL_FALSE, &left_ear_mat[0][0]);
 		}
 
 		if (glfwGetKey(window, 'X') == GLFW_PRESS) {
 			std::cout << "xxxx";
 			theta -= rot_speed * deltaTime;
 			left_ear_mat = glm::inverse(mats[1]) * glm::rotate(glm::mat4(1.0f), theta, glm::vec3(0.0, 1.0, 0.0)) * mats[1];
-			glUniformMatrix4fv (bone_matrices_locations[1], 1, GL_FALSE, &left_ear_mat[0][0]);
+			glUniformMatrix4fv(bone_matrices_locations[1], 1, GL_FALSE, &left_ear_mat[0][0]);
 			left_ear_mat = glm::inverse(mats[2]) * glm::rotate(glm::mat4(1.0f), -theta, glm::vec3(0.0, 1.0, 0.0)) * mats[2];
-			glUniformMatrix4fv (bone_matrices_locations[2], 1, GL_FALSE, &left_ear_mat[0][0]);
+			glUniformMatrix4fv(bone_matrices_locations[2], 1, GL_FALSE, &left_ear_mat[0][0]);
 		}
 
 		if (glfwGetKey(window, 'X') == GLFW_RELEASE && glfwGetKey(window, 'Z') == GLFW_RELEASE) {
@@ -1901,7 +1988,9 @@ int main() {
 		for (const auto& mesh : meshes) {
 			glBindVertexArray(mesh.vao);
 
-			const Material& material = materials[mesh.materialId];
+			if (mesh.materialId != -1) {
+				const Material& material = materials[mesh.materialId];
+			}
 
 			glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 5.0f, 10.0f)) *
 				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
