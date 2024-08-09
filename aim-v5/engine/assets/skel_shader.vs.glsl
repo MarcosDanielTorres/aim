@@ -2,7 +2,7 @@
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoords;
-layout(location = 3) in ivec4 aBoneIds;
+layout(location = 3) in uvec4 aBoneIds;
 layout(location = 4) in vec4 aWeights;
 
 const int MAX_BONES = 100;
@@ -12,7 +12,7 @@ const int MAX_BONE_INFLUENCE = 4;
 out vec2 TexCoord0;
 out vec3 Normal0;
 out vec3 LocalPos0;
-flat out ivec4 BoneIds0;
+flat out uvec4 BoneIds0;
 out vec4 Weights0;
 
 uniform mat4 model;

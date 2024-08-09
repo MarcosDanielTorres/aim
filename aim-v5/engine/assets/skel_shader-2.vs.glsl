@@ -2,7 +2,8 @@
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoords;
-layout(location = 3) in vec4 inJointIndices;
+layout(location = 3) in uvec4 inJointIndices; // esto no andaba si lo dejaba como uvec4
+// en realidad anda con uvec4 pero por alguna razon me hizo confundir esto. creo que no guarde y pense que no andaba con uvec4
 layout(location = 4) in vec4 inJointWeights;
 
 const int MAX_BONES = 100;
@@ -30,6 +31,7 @@ void main() {
 		inJointWeights.w * jointMatrices[int(inJointIndices.w)];
 
 	gl_Position = projection * view * model * skinMat * vec4(aPos.xyz, 1.0);
+	//gl_Position = projection * view * model * vec4(aPos.xyz, 1.0);
 	//Normal0 = aNormal;
 	Normal0 = normalize(transpose(inverse(mat3(view * model * skinMat))) * aNormal);
 
