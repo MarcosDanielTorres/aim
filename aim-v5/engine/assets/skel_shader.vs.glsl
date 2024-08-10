@@ -20,9 +20,17 @@ uniform mat4 view;
 uniform mat4 projection;
 
 uniform mat4 finalBonesMatrices[50]; // Adjust the size as needed
+uniform mat4 nodeMatrix;
 
 void main() {
     gl_Position = projection * view * model * vec4(aPos, 1.0);
+
+
+	// no se por que lo hace
+    //vec4 locPos = model * nodeMatrix * vec4(aPos, 1.0);
+	//vec3 outWorldPos = locPos.xyz / locPos.w;
+    //gl_Position = projection * view * vec4(outWorldPos, 1.0);
+
 	TexCoord0 = aTexCoords;
 	Normal0 = aNormal;
 	LocalPos0 = aPos;

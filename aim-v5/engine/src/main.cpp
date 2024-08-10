@@ -34,6 +34,7 @@
 #include <cstdarg>
 
 #define PART_11
+#define MAX_NUM_JOINTS 32u
 
 void print_matrix(const glm::mat4& mat);
 JPH_SUPPRESS_WARNINGS
@@ -456,34 +457,48 @@ struct GLTFMesh {
 };
 
 struct Mesh {
-	std::vector<GLTFMesh> primitives;
+	std::vector<GLTFMesh*> primitives;
+	struct UniformBlock {
+		glm::mat4 matrix;
+		glm::mat4 jointMatrix[MAX_NUM_JOINTS]{};
+		uint32_t jointCount{ 0 };
+	} uniformBlock;
 };
 
+struct GLTFSkin;
 struct GLTFNode {
 	GLTFNode* parent;
 	std::string name;
 	std::vector<GLTFNode*> children;
 	uint32_t index;
-	int skin;
-	Mesh mesh;
+	GLTFSkin* skin;
+	int32_t skinIndex{ -1 };
+	Mesh* mesh;
 	glm::mat4 local_matrix;
 	glm::vec3           translation{};
 	glm::vec3           scale{ 1.0f };
 	glm::quat           rotation{};
 
-	void update() {
-
-	}
+	void update();
 
 	glm::mat4 getLocalMatrix()
 	{
 		return glm::translate(glm::mat4(1.0f), translation) * glm::mat4(rotation) * glm::scale(glm::mat4(1.0f), scale) * local_matrix;
 	}
+
+	glm::mat4 getMatrix() {
+		glm::mat4 node_matrix = getLocalMatrix();
+		GLTFNode* curr_parent = parent;
+
+		while (curr_parent) {
+			node_matrix = curr_parent->getLocalMatrix() * node_matrix;
+			curr_parent = curr_parent->parent;
+		}
+
+		return node_matrix;
+	}
 };
 
-struct Primitive {
-
-};
 
 struct GLTFSkin {
 	std::string            name;
@@ -521,7 +536,8 @@ uint32_t activeAnimation = 0;
 
 // Animation related
 std::vector<GLTFNode*> nodes;
-std::vector<GLTFSkin> skins;
+std::vector<GLTFNode*> linearNodes;
+std::vector<GLTFSkin*> skins;
 std::vector<GLTFAnimation> animations;
 
 
@@ -546,7 +562,7 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 {
 	GLTFNode* new_node = new GLTFNode{};
 	new_node->parent = parent;
-	new_node->skin = curr_node.skin;
+	new_node->skinIndex = curr_node.skin;
 	new_node->index = node_index;
 	new_node->local_matrix = glm::mat4(1.0f);
 	new_node->name = curr_node.name;
@@ -573,9 +589,10 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 			load_node(model.nodes[curr_node.children[i]], new_node, curr_node.children[i], model, info);
 		}
 	}
-
+	//if (curr_node.mesh > -1 && curr_node.name != "SK_AssaultRifle" && curr_node.name != "SM_AssaultRifle_Magazine") {
 	if (curr_node.mesh > -1) {
 		const tinygltf::Mesh mesh = model.meshes[curr_node.mesh];
+		Mesh* newMesh = new Mesh{};
 		for (size_t i = 0; i < mesh.primitives.size(); i++) {
 			const tinygltf::Primitive& primitive = mesh.primitives[i];
 			bool has_skin = false;
@@ -585,7 +602,6 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 			uint32_t index_count = 0;
 			uint32_t vertex_start = static_cast<uint32_t>(info.vertex_pos);
 			uint32_t index_start = static_cast<uint32_t>(info.index_pos);
-
 
 			// vertices
 
@@ -706,12 +722,8 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 				if (glm::length(vert.weights) == 0.0f) {
 					vert.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
 				}
-				std::cout << "Vertex " << i << " Joints: "
-					<< vert.joints[0] << ", " << vert.joints[1] << ", " << vert.joints[2] << ", " << vert.joints[3] << " Weights: "
-					<< vert.weights[0] << ", " << vert.weights[1] << ", " << vert.weights[2] << ", " << vert.weights[3] << std::endl;
 				info.vertex_pos++;
 			}
-			std::cout << "FINISHED\n " << std::endl; // vertices
 
 			// indices
 			if (has_indices) {
@@ -726,7 +738,7 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 				case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
 					const uint32_t* buf = static_cast<const uint32_t*>(dataPtr);
 					for (size_t index = 0; index < idxAccessor.count; index++) {
-						info.indexBuffer[info.index_pos] = buf[index] + vertex_start;
+						info.indexBuffer[info.index_pos] = buf[index];
 						info.index_pos++;
 					}
 					break;
@@ -734,7 +746,7 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 				case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {
 					const uint16_t* buf = static_cast<const uint16_t*>(dataPtr);
 					for (size_t index = 0; index < idxAccessor.count; index++) {
-						info.indexBuffer[info.index_pos] = buf[index] + vertex_start;
+						info.indexBuffer[info.index_pos] = buf[index];
 						info.index_pos++;
 					}
 					break;
@@ -742,7 +754,7 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 				case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE: {
 					const uint8_t* buf = static_cast<const uint8_t*>(dataPtr);
 					for (size_t index = 0; index < idxAccessor.count; index++) {
-						info.indexBuffer[info.index_pos] = buf[index] + vertex_start;
+						info.indexBuffer[info.index_pos] = buf[index];
 						info.index_pos++;
 					}
 					break;
@@ -756,17 +768,17 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 
 			materialId = primitive.material;
 
-			GLTFMesh mesh{};
+			GLTFMesh* mesh = new GLTFMesh{};
 
-			glGenVertexArrays(1, &mesh.vao);
-			glBindVertexArray(mesh.vao);
+			glGenVertexArrays(1, &mesh->vao);
+			glBindVertexArray(mesh->vao);
 
-			glGenBuffers(1, &mesh.vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+			glGenBuffers(1, &mesh->vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
 			glBufferData(GL_ARRAY_BUFFER, vertex_count * sizeof(Vertex), &info.vertexBuffer[vertex_start], GL_STATIC_DRAW);
 
-			glGenBuffers(1, &mesh.ebo);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
+			glGenBuffers(1, &mesh->ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo);
 			glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(uint32_t), &info.indexBuffer[index_start], GL_STATIC_DRAW);
 
 			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
@@ -784,14 +796,14 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 				glEnableVertexAttribArray(4);
 			}
 
-			mesh.indexCount = index_count;
-			mesh.first_index = index_start;
-			mesh.materialId = materialId;
+			mesh->indexCount = index_count;
+			mesh->first_index = index_start;
+			mesh->materialId = materialId;
 
 			glBindVertexArray(0);
-			new_node->mesh.primitives.push_back(mesh);
-
+			newMesh->primitives.push_back(mesh);
 		}
+		new_node->mesh = newMesh;
 	}
 
 	if (parent) {
@@ -801,285 +813,8 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 		// aca estan todos los nodos sin padre.
 		nodes.push_back(new_node);
 	}
+	linearNodes.push_back(new_node);
 }
-
-
-
-
-GLTFMesh createMesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh) {
-	GLint* bone_ids = NULL; // array of bone IDs
-	struct Vertex {
-		glm::vec3 position;
-		glm::vec3 normal;
-		glm::vec2 aTexCoords;
-#ifdef PART_1
-		glm::vec4 joints;
-		glm::vec4 weights;
-#else
-		int joints[4];
-		float weights[4];
-#endif
-	};
-
-	struct VertexSas {
-		glm::vec3 pos;
-		glm::vec3 normal;
-		glm::vec2 uv;
-		glm::vec4 jointIndices;
-		glm::vec4 jointWeights;
-	};
-
-	std::vector<Vertex> vertices;
-	std::vector<uint16_t> indices;
-	GLuint materialId = 0;
-	bool hasJointsAndWeights = false;
-	int vertex_count = 0;
-
-	// por ahora solo cicla una vez porque no hay mas de una `primitive`
-	for (const auto& primitive : mesh.primitives) {
-		// Indices
-		//{
-		//	const tinygltf::Accessor &  accessor   = input.accessors[glTFPrimitive.indices];
-		//	const tinygltf::BufferView &bufferView = input.bufferViews[accessor.bufferView];
-		//	const tinygltf::Buffer &    buffer     = input.buffers[bufferView.buffer];
-
-		//	indexCount += static_cast<uint32_t>(accessor.count);
-
-		//	// glTF supports different component types of indices
-		//	switch (accessor.componentType)
-		//	{
-		//		case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
-		//			const uint32_t* buf = reinterpret_cast<const uint32_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
-		//			for (size_t index = 0; index < accessor.count; index++)
-		//			{
-		//				indexBuffer.push_back(buf[index] + vertexStart);
-		//			}
-		//			break;
-		//		}
-		//		case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {
-		//			const uint16_t* buf = reinterpret_cast<const uint16_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
-		//			for (size_t index = 0; index < accessor.count; index++)
-		//			{
-		//				indexBuffer.push_back(buf[index] + vertexStart);
-		//			}
-		//			break;
-		//		}
-		//		case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE: {
-		//			const uint8_t* buf = reinterpret_cast<const uint8_t*>(&buffer.data[accessor.byteOffset + bufferView.byteOffset]);
-		//			for (size_t index = 0; index < accessor.count; index++)
-		//			{
-		//				indexBuffer.push_back(buf[index] + vertexStart);
-		//			}
-		//			break;
-		//		}
-		//		default:
-		//			std::cerr << "Index component type " << accessor.componentType << " not supported!" << std::endl;
-		//			return;
-		//	}
-		//}
-
-
-
-
-
-
-
-	// 
-	// 
-	/////////////////////////////////////////////////
-
-
-
-
-
-
-	// Position
-		const auto& posAccessor = model.accessors[primitive.attributes.at("POSITION")];
-		const auto& posBufferView = model.bufferViews[posAccessor.bufferView];
-		const auto& posBuffer = model.buffers[posBufferView.buffer];
-		vertex_count = posAccessor.count;
-
-		bone_ids = (int*)malloc(posAccessor.count * sizeof(int));
-
-		// Normal TEXCOORD_0
-		auto normalIter = primitive.attributes.find("NORMAL");
-		const float* normalData = nullptr;
-		if (normalIter != primitive.attributes.end()) {
-			const auto& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
-			const auto& normalBufferView = model.bufferViews[normalAccessor.bufferView];
-			const auto& normalBuffer = model.buffers[normalBufferView.buffer];
-			normalData = reinterpret_cast<const float*>(&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
-		}
-
-		// Joints and Weights
-		auto jointIter = primitive.attributes.find("JOINTS_0");
-		auto weightIter = primitive.attributes.find("WEIGHTS_0");
-
-		const void* jointData = nullptr;
-		const float* weightData = nullptr;
-		int jointComponentType = -1;
-		int jointType = -1;
-		size_t jointStride = 0;
-
-		if (jointIter != primitive.attributes.end() && weightIter != primitive.attributes.end()) {
-			hasJointsAndWeights = true;
-
-			// Joint data
-			const auto& jointAccessor = model.accessors[jointIter->second];
-			const auto& jointBufferView = model.bufferViews[jointAccessor.bufferView];
-			const auto& jointBuffer = model.buffers[jointBufferView.buffer];
-			jointData = &jointBuffer.data[jointBufferView.byteOffset + jointAccessor.byteOffset];
-			jointComponentType = jointAccessor.componentType;
-			jointType = jointAccessor.type;
-			jointStride = jointBufferView.byteStride ? jointBufferView.byteStride : (jointAccessor.type == TINYGLTF_TYPE_VEC4 ? 4 * tinygltf::GetComponentSizeInBytes(jointComponentType) : 0);
-			// Weight data
-			const auto& weightAccessor = model.accessors[weightIter->second];
-			const auto& weightBufferView = model.bufferViews[weightAccessor.bufferView];
-			const auto& weightBuffer = model.buffers[weightBufferView.buffer];
-			weightData = reinterpret_cast<const float*>(&weightBuffer.data[weightBufferView.byteOffset + weightAccessor.byteOffset]);
-		}
-
-		const float* posData = reinterpret_cast<const float*>(&posBuffer.data[posBufferView.byteOffset + posAccessor.byteOffset]);
-
-		for (size_t i = 0; i < posAccessor.count; ++i) {
-			Vertex vertex;
-			vertex.position = glm::vec3(posData[i * 3], posData[i * 3 + 1], posData[i * 3 + 2]);
-			if (normalData) {
-				vertex.normal = glm::vec3(normalData[i * 3], normalData[i * 3 + 1], normalData[i * 3 + 2]);
-			}
-			else {
-				vertex.normal = glm::vec3(0.0f, 0.0f, 0.0f);
-			}
-			vertex.aTexCoords = glm::vec2(0.0f, 0.0f); // Placeholder, should be set if texcoords are available
-
-			if (hasJointsAndWeights) {
-				for (int j = 0; j < 4; ++j) {
-					size_t offset = i * jointStride + j * tinygltf::GetComponentSizeInBytes(jointComponentType);
-					switch (jointComponentType) {
-					case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-						//vertex.joints[j] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
-						vertex.joints[j] = *reinterpret_cast<const uint8_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
-						break;
-					case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-						vertex.joints[j] = *reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
-						//vertex.joints[j] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
-						break;
-					default:
-						std::cerr << "Error: Unsupported component type in JOINTS_0 attribute." << std::endl;
-						break;
-					}
-					vertex.weights[j] = weightData[i * 4 + j];
-				}
-
-				for (int j = 0; j < 4; ++j) {
-					if (weightData[i * 4 + j] >= 0.5f) {
-						size_t offset = i * jointStride + j * tinygltf::GetComponentSizeInBytes(jointComponentType);
-						switch (jointComponentType) {
-						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-							bone_ids[i] = *reinterpret_cast<const uint8_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
-							//bone_ids[i] = reinterpret_cast<const uint8_t*>(jointData)[i * 4 + j];
-							break;
-						case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-							bone_ids[i] = *reinterpret_cast<const uint16_t*>(reinterpret_cast<const uint8_t*>(jointData) + offset);
-							//bone_ids[i] = reinterpret_cast<const uint16_t*>(jointData)[i * 4 + j];
-							break;
-						default:
-							std::cerr << "Error: Unsupported component type in JOINTS_0 attribute." << std::endl;
-							break;
-						}
-						break;
-					}
-				}
-			}
-			else {
-#ifdef PART_1
-				vertex.joints = glm::vec4(0.0f);
-				vertex.weights = glm::vec4(0.0f);
-#else
-				std::fill(std::begin(vertex.joints), std::end(vertex.joints), 0);
-				vertex.weights[0] = 1.0f;
-				std::fill(std::begin(vertex.weights) + 1, std::end(vertex.weights), 0.0f);
-#endif
-			}
-
-			// Print joints and weights for debugging
-			std::cout << "Vertex " << i << " Joints: "
-				<< vertex.joints[0] << ", " << vertex.joints[1] << ", " << vertex.joints[2] << ", " << vertex.joints[3] << " Weights: "
-				<< vertex.weights[0] << ", " << vertex.weights[1] << ", " << vertex.weights[2] << ", " << vertex.weights[3] << std::endl;
-
-			vertices.push_back(vertex);
-		}
-
-		std::cout << "BONES\n" << std::endl;
-		for (int i = 0; i < vertex_count; i++) {
-			std::cout << "Vertex" << i << ": " << bone_ids[i] << std::endl;
-		}
-
-		const auto& idxAccessor = model.accessors[primitive.indices];
-		const auto& idxBufferView = model.bufferViews[idxAccessor.bufferView];
-		const auto& idxBuffer = model.buffers[idxBufferView.buffer];
-
-
-
-		TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE;
-		if (idxAccessor.componentType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
-			std::cerr << "Error: Unsupported component type in indices." << std::endl;
-			continue;
-		}
-
-		const uint16_t* idxData = reinterpret_cast<const uint16_t*>(&idxBuffer.data[idxBufferView.byteOffset + idxAccessor.byteOffset]);
-		indices.insert(indices.end(), idxData, idxData + idxAccessor.count);
-
-		materialId = primitive.material;
-	}
-
-	GLTFMesh result;
-	glGenVertexArrays(1, &result.vao);
-	glBindVertexArray(result.vao);
-
-	glGenBuffers(1, &result.vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, result.vbo);
-	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), &vertices[0], GL_STATIC_DRAW);
-
-	glGenBuffers(1, &result.ebo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result.ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint16_t), indices.data(), GL_STATIC_DRAW);
-
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, aTexCoords));
-	glEnableVertexAttribArray(2);
-
-	if (hasJointsAndWeights) {
-#ifdef PART_1
-		if (bone_ids) {
-			GLuint vbo;
-			glGenBuffers(1, &vbo);
-			glBindBuffer(GL_ARRAY_BUFFER, vbo);
-			glBufferData(GL_ARRAY_BUFFER, vertex_count * sizeof(GLint), bone_ids, GL_STATIC_DRAW);
-			glVertexAttribIPointer(3, 1, GL_INT, 0, NULL);
-			glEnableVertexAttribArray(3);
-			free(bone_ids);
-		}
-
-#else
-		glVertexAttribIPointer(3, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, joints));
-		glEnableVertexAttribArray(3);
-		glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
-		glEnableVertexAttribArray(4);
-#endif
-	}
-
-	result.indexCount = indices.size();
-	result.materialId = materialId;
-
-	glBindVertexArray(0);
-
-	return result;
-}
-
 
 
 struct Material {
@@ -1109,21 +844,37 @@ tinygltf::Model loadGLTFModel() {
 
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle-yup.glb";
 	//bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
-	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
-	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
+	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
 
 	// para este caso escale el cubo de blender a (0.5, 0.5, 0.5) pero asi por si solo no tiene efecto ya que esa info viene en el gltf claramente.
 	// especificamente en: nodes[0].scale, o en json  nodes:[scale:[]]
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube-scaled-down-to-0.5.gltf";
-	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); 
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube-colored.gltf";
 	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); 
 
 	// lgltf
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "CesiumMan.gltf";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "CesiumMan.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "hello.gltf";
-	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
+
+
+	/*
+		El shader renderiza bien todos los objetos excepto la magazine del rifle	
+		Si en el shader hardcodeo el jointCount a 0 igual tiene el mismo comportamiento solo que no hay animaciones
+
+		Incluso probe con una importacion nueva que funcionaba en godot y tampoco.
+
+		Puede ser que se este mandando mal el jointCount al shader pero lo dudo muchisimo porque igual hardcodeado me da lo mismo
+
+		Puede ser que no tengo bien los indices de la magazine y el casing y solo estoy mostrando la primer primitiva. Para probar esto voy a mostrar el primer nodo. Si tenia razon
+		Algo esta mal con los indices por ahi... Creo que el problema es que cuando guardo los valroes de los indices les sumo algo como buf[i] + vert_pos o algo por el estilo cosa de que los 
+		indices no se guarden relativamente. El tema es que como yo vuelvo a partir de buffers de 0 digamos, a diferencia de sascha. No deberia tener que sumar y deberia solo usar los indices relativos
+		y no los absolutos
+	*/
 
 	if (!warn.empty()) {
 		printf("Warn: %s\n", warn.c_str());
@@ -1364,33 +1115,38 @@ GLTFNode* nodeFromIndex(uint32_t index) {
 	return node_found;
 }
 
-void load_skins(const tinygltf::Model& model) {
-	skins.resize(model.skins.size());
+void load_skins(tinygltf::Model& gltfModel)
+{
+	for (tinygltf::Skin& source : gltfModel.skins) {
+		GLTFSkin* newSkin = new GLTFSkin{};
+		newSkin->name = source.name;
 
-	for (size_t i = 0; i < model.skins.size(); i++) {
-		tinygltf::Skin gltfSkin = model.skins[i];
-		skins[i].name = gltfSkin.name;
-		skins[i].skeletonRoot = nodeFromIndex(gltfSkin.skeleton);
+		// Find skeleton root node
+		if (source.skeleton > -1) {
+			newSkin->skeletonRoot = nodeFromIndex(source.skeleton);
+		}
 
-		for (int jointIndex : gltfSkin.joints) {
+		// Find joint nodes
+		for (int jointIndex : source.joints) {
 			GLTFNode* node = nodeFromIndex(jointIndex);
 			if (node) {
-				skins[i].joints.push_back(node);
+				newSkin->joints.push_back(nodeFromIndex(jointIndex));
 			}
 		}
 
-		if (gltfSkin.inverseBindMatrices > -1) {
-			auto accessor = model.accessors[gltfSkin.inverseBindMatrices];
-			auto inverse_bind_matrix_bufferview = model.bufferViews[accessor.bufferView];
-			auto inverse_bind_matrix_buffer = model.buffers[inverse_bind_matrix_bufferview.buffer];
-
-			size_t offset = accessor.byteOffset + inverse_bind_matrix_bufferview.byteOffset;
-
-			skins[i].inverseBindMatrices.resize(accessor.count);
-			memcpy(skins[i].inverseBindMatrices.data(), &inverse_bind_matrix_buffer.data[offset], sizeof(glm::mat4) * accessor.count);
+		// Get inverse bind matrices from buffer
+		if (source.inverseBindMatrices > -1) {
+			const tinygltf::Accessor& accessor = gltfModel.accessors[source.inverseBindMatrices];
+			const tinygltf::BufferView& bufferView = gltfModel.bufferViews[accessor.bufferView];
+			const tinygltf::Buffer& buffer = gltfModel.buffers[bufferView.buffer];
+			newSkin->inverseBindMatrices.resize(accessor.count);
+			memcpy(newSkin->inverseBindMatrices.data(), &buffer.data[accessor.byteOffset + bufferView.byteOffset], accessor.count * sizeof(glm::mat4));
 		}
+
+		skins.push_back(newSkin);
 	}
 }
+
 
 void load_animations(tinygltf::Model& input)
 {
@@ -1492,36 +1248,48 @@ glm::mat4 getNodeMatrix(GLTFNode* node) {
 	return node_matrix;
 }
 
-void update_joints(GLTFNode* node)
+void GLTFNode::update()
 {
-	if (node->skin > -1)
-	{
-		// Update the joint matrices
-		glm::mat4              inverseTransform = glm::inverse(getNodeMatrix(node));
-		GLTFSkin               skin = skins[node->skin];
-		size_t                 numJoints = (uint32_t)skin.joints.size();
-		assert(numJoints > 0);
-		std::vector<glm::mat4> jointMatrices(numJoints); //outside
-		for (size_t i = 0; i < numJoints; i++)
+	if (mesh) {
+		glm::mat4 m = getMatrix();
+		if (skin)
 		{
-			jointMatrices[i] = getNodeMatrix(skin.joints[i]) * skin.inverseBindMatrices[i];
-			jointMatrices[i] = inverseTransform * jointMatrices[i];
-		}
+			mesh->uniformBlock.matrix = m;
+			glm::mat4              inverseTransform = glm::inverse(m);
+			size_t numJoints = std::min((uint32_t)skin->joints.size(), MAX_NUM_JOINTS);
+			for (size_t i = 0; i < numJoints; i++)
+			{
+				GLTFNode* jointNode = skin->joints[i];
+				glm::mat4 jointMat = jointNode->getMatrix() * skin->inverseBindMatrices[i];
+				jointMat = inverseTransform * jointMat;
+				mesh->uniformBlock.jointMatrix[i] = jointMat;
+			}
+			mesh->uniformBlock.jointCount = static_cast<uint32_t>(numJoints);
 
-		glUseProgram(skinning_shader_id);
-		GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-		glUniformMatrix4fv(jointMatricesLoc, jointMatrices.size(), GL_FALSE, glm::value_ptr(jointMatrices[0]));
+			glUseProgram(skinning_shader_id);
+			GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+			glUniformMatrix4fv(jointMatricesLoc, numJoints, GL_FALSE, glm::value_ptr(mesh->uniformBlock.jointMatrix[0]));
+
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), mesh->uniformBlock.jointCount);
+
+
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &mesh->uniformBlock.matrix[0][0]);
+		}
+		else {
+			glUseProgram(skinning_shader_id);
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &m[0][0]);
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+		}
 	}
 
-	for (auto& child : node->children)
-	{
-		update_joints(child);
+	for (auto& child : children) {
+		child->update();
 	}
 }
 
 void update_animation(float deltaTime)
 {
-	if (activeAnimation > static_cast<uint32_t>(animations.size()) - 1)
+	if (animations.size() == 0 || activeAnimation > static_cast<uint32_t>(animations.size()) - 1)
 	{
 		std::cout << "No animation with index " << activeAnimation << std::endl;
 		return;
@@ -1577,7 +1345,7 @@ void update_animation(float deltaTime)
 	}
 	for (auto& node : nodes)
 	{
-		update_joints(node);
+		node->update();
 	}
 }
 
@@ -1633,33 +1401,43 @@ void getNodeProps(const tinygltf::Node& node, const tinygltf::Model& model, size
 	}
 }
 
-void render_node(GLTFNode* node, Shader* skel_shader) {
-	for (const auto& mesh : node->mesh.primitives) {
-		glBindVertexArray(mesh.vao);
+void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader) {
+	if (node->mesh) {
 
-		std::cout << "node name: " << node->name << std::endl;
-		if (node->name == "Cesium_Man") {
-			glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::quat qy = glm::angleAxis(glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-			glm::quat qz = glm::angleAxis(glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-			glm::quat rot = qz * qy * qx; // Specify order of rotations here
-			glm::mat4 model_mat =
-				glm::translate(glm::mat4(1.0f), glm::vec3(-5.0f, 0.5f, -10.0f)) *
-				glm::mat4_cast(rot) *
-				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+		for (const auto& mesh : node->mesh->primitives) {
+			glBindVertexArray(mesh->vao);
 
-			skel_shader->setMat4("model", model_mat);
+			std::cout << "node name: " << node->name << " Number fo primitives: " << node->mesh->primitives.size() << std::endl;
+
+			skinning_shader->use();
+			if (node->name == "Cesium_Man") {
+				glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot = qz * qy * qx; // Specify order of rotations here
+				glm::mat4 model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(-5.0f, 0.5f, -10.0f)) *
+					glm::mat4_cast(rot) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+
+				skinning_shader->setMat4("model", model_mat);
+			}
+			else {
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+				skinning_shader->setMat4("model", base_model_mat);
+
+			}
+
+			//glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_SHORT, 0);
+			glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
+			glBindVertexArray(0);
 		}
-		else {
-			skel_shader->setMat4("model", node->getLocalMatrix());
-		}
-
-		//glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
-		glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, 0);
-		glBindVertexArray(0);
 	}
+
 	for (auto& child : node->children) {
-		render_node(child, skel_shader);
+		render_node(child, skinning_shader, regular_shader);
 	}
 }
 
@@ -1775,10 +1553,17 @@ int main() {
 		const tinygltf::Node& node = model.nodes[scene.nodes[i]];
 		load_node(node, nullptr, scene.nodes[i], model, info);
 	}
+	if (model.animations.size() > 0) {
+		load_animations(model);
+	}
 	load_skins(model);
-	load_animations(model);
-	for (auto node : nodes) {
-		update_joints(node);
+	for (auto node : linearNodes) {
+		if (node->skinIndex > -1) {
+			node->skin = skins[node->skinIndex];
+		}
+		if (node->mesh) {
+			node->update();
+		}
 	}
 #endif
 
@@ -2455,13 +2240,17 @@ int main() {
 			glUniformMatrix4fv(bone_matrices_locations[i], 1, GL_FALSE, identity);
 		}
 
+
 		skinning_shader.setMat4("projection", projection);
 		skinning_shader.setMat4("view", view);
+		//skel_shader.use();
+		//skel_shader.setMat4("projection", projection);
+		//skel_shader.setMat4("view", view);
 
 		update_animation(deltaTime);
 
 		for (auto& node : nodes) {
-			render_node(node, &skinning_shader);
+			render_node(node, &skinning_shader, &skel_shader);
 		}
 
 
@@ -2747,7 +2536,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-	}
+		}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -2776,7 +2565,7 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	return 0;
-}
+	}
 
 // weird behaviour with chars int uints int8 etc
 unsigned int bitflag_base = 0x00034000;
@@ -2801,6 +2590,7 @@ void processInput(GLFWwindow* window)
 		glUseProgram(skel_id);
 		glUniform1i(glGetUniformLocation(skel_id, "gDisplayBoneIndex"), display_bone_index);
 		INFO("display bone index: %d", display_bone_index);
+
 	}
 
 

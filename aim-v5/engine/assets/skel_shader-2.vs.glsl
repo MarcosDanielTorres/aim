@@ -20,20 +20,32 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-uniform mat4 jointMatrices[50]; // Adjust the size as needed
+uniform mat4 jointMatrices[32]; // Adjust the size as needed
+uniform int jointCount; // si le dejo uint y el jointcount es uint32_t no anda. Si dejo int y el jointcount sigue siendo uint32_t anda.
+uniform mat4 nodeMatrix;
 
 void main() {
-	// Calculate skinned matrix from weights and joint indices of the current vertex
-	mat4 skinMat = 
-		inJointWeights.x * jointMatrices[int(inJointIndices.x)] +
-		inJointWeights.y * jointMatrices[int(inJointIndices.y)] +
-		inJointWeights.z * jointMatrices[int(inJointIndices.z)] +
-		inJointWeights.w * jointMatrices[int(inJointIndices.w)];
+	vec4 locPos;
+	//int jointCount = 0;
+	if (jointCount > 0) {
+		mat4 skinMat = 
+			inJointWeights.x * jointMatrices[int(inJointIndices.x)] +
+			inJointWeights.y * jointMatrices[int(inJointIndices.y)] +
+			inJointWeights.z * jointMatrices[int(inJointIndices.z)] +
+			inJointWeights.w * jointMatrices[int(inJointIndices.w)];
 
-	gl_Position = projection * view * model * skinMat * vec4(aPos.xyz, 1.0);
+		locPos = model * nodeMatrix * skinMat * vec4(aPos, 1.0);
+		Normal0 = normalize(transpose(inverse(mat3(view * model * nodeMatrix * skinMat))) * aNormal);
+	}else{
+	// ver por que no me anda aca el nodematrix y listo ya esttaria
+		locPos = model * vec4(aPos, 1.0);
+		Normal0 = normalize(transpose(inverse(mat3(view * model * nodeMatrix))) * aNormal);
+	}
+
+
+	vec4 outWorldPos = locPos;
+	gl_Position = projection * view * outWorldPos;
 	//gl_Position = projection * view * model * vec4(aPos.xyz, 1.0);
-	//Normal0 = aNormal;
-	Normal0 = normalize(transpose(inverse(mat3(view * model * skinMat))) * aNormal);
 
 	TexCoord0 = aTexCoords;
 	LocalPos0 = aPos;
