@@ -690,8 +690,7 @@ void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_
 				Vertex& vert = info.vertexBuffer[info.vertex_pos];
 				//vert.position = glm::vec4(glm::make_vec3(&posData[v * posByteStride]), 1.0f);
 				vert.position = glm::make_vec3(&posData[v * posByteStride]);
-				//vert.normal = glm::normalize(glm::vec3(normalData ? glm::make_vec3(&normalData[v * normByteStride]) : glm::vec3(0.0f)));
-				vert.normal = glm::vec3(0.0f);
+				vert.normal = glm::normalize(glm::vec3(normalData ? glm::make_vec3(&normalData[v * normByteStride]) : glm::vec3(0.0f)));
 				//vert.aTexCoords = textureData ? glm::make_vec2(&textureData[v * uv0ByteStride]) : glm::vec3(0.0f);
 				//vert.aTexCoords2 = bufferTexCoordSet1 ? glm::make_vec2(&bufferTexCoordSet1[v * uv1ByteStride]) : glm::vec3(0.0f);
 				vert.aTexCoords = textureData ? glm::make_vec2(&textureData[v * uv0ByteStride]) : glm::vec2(0.0f);
@@ -1306,8 +1305,8 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 			}
 			else {
 				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 2.0f, 18.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
 				skinning_shader->setMat4("model", base_model_mat);
 
 			}
@@ -1523,7 +1522,7 @@ int main() {
 	//Shader lightingShader("1.colors.vs", "1.colors.fs");
 	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
 	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
-	Shader skinning_shader("skel_shader-2.vs.glsl", "skel_shader-2.fs.glsl");
+	Shader skinning_shader("skel_shader-2.vs.glsl", "6.multiple_lights.fs.glsl");
 #ifdef PART_1
 	Shader skel_shader("skel_shader-anton-part-1.vs.glsl", "skel_shader-anton-part-1.fs.glsl");
 #else
@@ -1991,7 +1990,6 @@ int main() {
 		lightingShaderGouraud.setMat4("model", model);
 
 #endif
-#if 0
 #pragma region CUBE_OBJECT
 		// render the cube
 		glBindVertexArray(cubeVAO);
@@ -2042,7 +2040,6 @@ int main() {
 
 
 #pragma endregion CUBE_OBJECT
-#endif
 
 
 		// skere
@@ -2111,6 +2108,51 @@ int main() {
 
 #if 1
 		skinning_shader.use();
+
+		//skinning_shader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
+		skinning_shader.setInt("material.diffuse", 0);
+		skinning_shader.setInt("material.specular", 1);
+		skinning_shader.setFloat("material.shininess", model_material_shininess);
+
+		if (!fps_mode) {
+			skinning_shader.setVec3("viewPos", free_camera.position);
+			skinning_shader.setVec3("spotLight.position", free_camera.position);
+			skinning_shader.setVec3("spotLight.direction", free_camera.forward);
+		}
+		else {
+			skinning_shader.setVec3("viewPos", fps_camera.position);
+			skinning_shader.setVec3("spotLight.position", fps_camera.position);
+			skinning_shader.setVec3("spotLight.direction", fps_camera.forward);
+		}
+
+		// directional_light
+		skinning_shader.setVec3("dirLight.direction", directional_light.direction);
+		skinning_shader.setVec3("dirLight.ambient", directional_light.ambient);
+		skinning_shader.setVec3("dirLight.diffuse", directional_light.diffuse);
+		skinning_shader.setVec3("dirLight.specular", directional_light.specular);
+
+		// point_lights
+		for (int i = 0; i < n; i++) {
+			std::string prefix = "pointLights[" + std::to_string(i) + "]";
+
+			skinning_shader.setVec3(prefix + ".position", point_lights[i].transform.pos);
+			skinning_shader.setVec3(prefix + ".ambient", point_lights[i].ambient);
+			skinning_shader.setVec3(prefix + ".diffuse", point_lights[i].diffuse);
+			skinning_shader.setVec3(prefix + ".specular", point_lights[i].specular);
+			skinning_shader.setFloat(prefix + ".constant", point_lights[i].constant);
+			skinning_shader.setFloat(prefix + ".linear", point_lights[i].linear);
+			skinning_shader.setFloat(prefix + ".quadratic", point_lights[i].quadratic);
+		}
+
+		// spot_light
+		skinning_shader.setVec3("spotLight.ambient", spot_light.ambient);
+		skinning_shader.setVec3("spotLight.diffuse", spot_light.diffuse);
+		skinning_shader.setVec3("spotLight.specular", spot_light.specular);
+		skinning_shader.setFloat("spotLight.constant", spot_light.constant);
+		skinning_shader.setFloat("spotLight.linear", spot_light.linear);
+		skinning_shader.setFloat("spotLight.quadratic", spot_light.quadratic);
+		skinning_shader.setFloat("spotLight.cutOff", spot_light.cutOff);
+		skinning_shader.setFloat("spotLight.outerCutOff", spot_light.outerCutOff);
 		skinning_shader.setMat4("projection", projection);
 		skinning_shader.setMat4("view", view);
 
