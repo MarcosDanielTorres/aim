@@ -844,8 +844,8 @@ tinygltf::Model loadGLTFModel() {
 
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle-yup.glb";
 	//bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
-	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
+	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
 
 	// para este caso escale el cubo de blender a (0.5, 0.5, 0.5) pero asi por si solo no tiene efecto ya que esa info viene en el gltf claramente.
 	// especificamente en: nodes[0].scale, o en json  nodes:[scale:[]]
@@ -858,8 +858,8 @@ tinygltf::Model loadGLTFModel() {
 	// lgltf
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "CesiumMan.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "hello.gltf";
-	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
-	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
+	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 
 	/*
@@ -961,129 +961,8 @@ glm::mat4 interpolateTransform(const Keyframe& kf1, const Keyframe& kf2, float t
 	return translationMatrix * rotationMatrix * scaleMatrix;
 }
 
-void updateJointTransforms(const tinygltf::Model& model, std::vector<Joint>& joints, const Animation& animation, float time) {
-	if (model.skins.empty()) return;
-	const tinygltf::Skin& skin = model.skins[0];
-
-	for (size_t i = 0; i < skin.joints.size(); ++i) {
-		int jointIndex = skin.joints[i];
-		if (jointIndex >= model.nodes.size()) {
-			std::cerr << "Error: Joint index out of range." << std::endl;
-			continue;
-		}
-
-		const tinygltf::Node& node = model.nodes[jointIndex];
-
-		// Find the two keyframes to interpolate between
-		Keyframe kf1, kf2;
-		for (size_t j = 0; j < animation.keyframes.size() - 1; ++j) {
-			if (time >= animation.keyframes[j].time && time <= animation.keyframes[j + 1].time) {
-				kf1 = animation.keyframes[j];
-				kf2 = animation.keyframes[j + 1];
-				break;
-			}
-		}
-
-		joints[i].currentTransform = interpolateTransform(kf1, kf2, time);
-	}
-}
-
-
-// Update joint transforms
-void updateJointTransforms2(const tinygltf::Model& model, std::vector<Joint>& joints, float time) {
-	if (model.skins.empty()) return;
-	const tinygltf::Skin& skin = model.skins[0];
-
-	for (size_t i = 0; i < skin.joints.size(); ++i) {
-		int jointIndex = skin.joints[i];
-		if (jointIndex >= model.nodes.size()) {
-			std::cerr << "Error: Joint index out of range." << std::endl;
-			continue;
-		}
-
-		const tinygltf::Node& node = model.nodes[jointIndex];
-
-
-		glm::vec3 translation(0.0f, 0.0f, 0.0f);
-		if (!node.translation.empty()) {
-			translation = glm::vec3(node.translation[0], node.translation[1], node.translation[2]);
-		}
-
-		glm::quat rotation(1.0f, 0.0f, 0.0f, 0.0f);
-		if (!node.rotation.empty()) {
-			rotation = glm::quat(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2]);
-		}
-
-		glm::vec3 scale(1.0f, 1.0f, 1.0f);
-		if (!node.scale.empty()) {
-			scale = glm::vec3(node.scale[0], node.scale[1], node.scale[2]);
-		}
-
-		glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
-		glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
-		glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
-
-		joints[i].currentTransform = translationMatrix * rotationMatrix * scaleMatrix;
-	}
-}
-
-void calculateBoneTransforms(const std::vector<Joint>& joints, std::vector<glm::mat4>& boneTransforms) {
-	boneTransforms.resize(joints.size());
-
-	for (size_t i = 0; i < joints.size(); ++i) {
-		glm::mat4 transform = joints[i].currentTransform;
-
-		int parentIndex = joints[i].parentIndex;
-		while (parentIndex >= 0) {
-			transform = joints[parentIndex].currentTransform * transform;
-			parentIndex = joints[parentIndex].parentIndex;
-		}
-
-		boneTransforms[i] = transform * joints[i].inverseBindMatrix;
-	}
-}
-
-void uploadBoneTransforms(GLuint shaderProgram, const std::vector<glm::mat4>& boneTransforms) {
-	for (size_t i = 0; i < boneTransforms.size(); ++i) {
-		std::string uniformName = "boneTransforms[" + std::to_string(i) + "]";
-		GLuint uniformLocation = glGetUniformLocation(shaderProgram, uniformName.c_str());
-		glUniformMatrix4fv(uniformLocation, 1, GL_FALSE, glm::value_ptr(boneTransforms[i]));
-	}
-}
-
 
 #define MAX_NUM_BONES_PER_VERTEX 4
-
-struct VertexBoneData
-{
-	unsigned int BoneIDs[MAX_NUM_BONES_PER_VERTEX] = { 0 };
-	float Weights[MAX_NUM_BONES_PER_VERTEX] = { 0.0f };
-
-	VertexBoneData()
-	{
-	}
-
-	void AddBoneData(unsigned int BoneID, float Weight)
-	{
-		for (unsigned int i = 0; i < sizeof(BoneIDs) / sizeof(BoneIDs[0]); i++) {
-			if (Weights[i] == 0.0) {
-				BoneIDs[i] = BoneID;
-				Weights[i] = Weight;
-				printf("bone %d weight %f index %i\n", BoneID, Weight, i);
-				return;
-			}
-		}
-
-		// should never get here - more bones than we have space for
-		assert(0);
-	}
-};
-
-
-
-std::vector<VertexBoneData> vertex_to_bones;
-std::vector<int> mesh_base_vertex;
-std::map<std::string, unsigned int> bone_name_to_index_map;
 
 
 GLTFNode* findNode(GLTFNode* parent, uint32_t index) {
@@ -1266,19 +1145,22 @@ void GLTFNode::update()
 			}
 			mesh->uniformBlock.jointCount = static_cast<uint32_t>(numJoints);
 
-			glUseProgram(skinning_shader_id);
-			GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-			glUniformMatrix4fv(jointMatricesLoc, numJoints, GL_FALSE, glm::value_ptr(mesh->uniformBlock.jointMatrix[0]));
-
-			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), mesh->uniformBlock.jointCount);
 
 
-			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &mesh->uniformBlock.matrix[0][0]);
+			//glUseProgram(skinning_shader_id);
+			//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+			//glUniformMatrix4fv(jointMatricesLoc, numJoints, GL_FALSE, glm::value_ptr(mesh->uniformBlock.jointMatrix[0]));
+
+			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), mesh->uniformBlock.jointCount);
+
+			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &mesh->uniformBlock.matrix[0][0]);
 		}
 		else {
-			glUseProgram(skinning_shader_id);
-			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &m[0][0]);
-			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+			mesh->uniformBlock.matrix = m;
+
+			//glUseProgram(skinning_shader_id);
+			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &m[0][0]);
+			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 		}
 	}
 
@@ -1429,6 +1311,13 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 				skinning_shader->setMat4("model", base_model_mat);
 
 			}
+			glUseProgram(skinning_shader_id);
+			GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+			glUniformMatrix4fv(jointMatricesLoc, node->mesh->uniformBlock.jointCount, GL_FALSE, glm::value_ptr(node->mesh->uniformBlock.jointMatrix[0]));
+
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
+
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->mesh->uniformBlock.matrix[0][0]);
 
 			//glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_SHORT, 0);
 			glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
@@ -1569,7 +1458,7 @@ int main() {
 
 	for (const auto& gltfMesh : model.meshes) {
 		// En los ejemplos que he visto solo hay un mesh en el gltf
-		//meshes.push_back(createMesh(model, gltfMesh));
+		// meshes.push_back(createMesh(model, gltfMesh));
 	}
 
 #pragma region imgui
@@ -2081,10 +1970,6 @@ int main() {
 
 
 #pragma endregion LIGHT_RENDERING
-
-
-
-
 #else
 
 		lightingShaderGouraud.use();
@@ -2106,8 +1991,7 @@ int main() {
 		lightingShaderGouraud.setMat4("model", model);
 
 #endif
-
-
+#if 0
 #pragma region CUBE_OBJECT
 		// render the cube
 		glBindVertexArray(cubeVAO);
@@ -2157,6 +2041,8 @@ int main() {
 		// render floor, is just a plane
 
 
+#pragma endregion CUBE_OBJECT
+#endif
 
 
 		// skere
@@ -2225,27 +2111,8 @@ int main() {
 
 #if 1
 		skinning_shader.use();
-		float identity[] = {
-			1.0f, 0.0f, 0.0f, 0.0f, // first column
-			0.0f, 1.0f, 0.0f, 0.0f, // second column
-			0.0f, 0.0f, 1.0f, 0.0f, // third column
-			0.0f, 0.0f, 0.0f, 1.0f //
-		};
-
-		char name[64];
-
-		for (int i = 0; i < 32; i++) {
-			sprintf(name, "bone_matrices[%i]", i);
-			bone_matrices_locations[i] = glGetUniformLocation(skel_shader.ID, name);
-			glUniformMatrix4fv(bone_matrices_locations[i], 1, GL_FALSE, identity);
-		}
-
-
 		skinning_shader.setMat4("projection", projection);
 		skinning_shader.setMat4("view", view);
-		//skel_shader.use();
-		//skel_shader.setMat4("projection", projection);
-		//skel_shader.setMat4("view", view);
 
 		update_animation(deltaTime);
 
@@ -2259,7 +2126,6 @@ int main() {
 
 
 
-#pragma endregion CUBE_OBJECT
 
 #pragma region LAMP_OBJECT
 		// also draw the LAMP object

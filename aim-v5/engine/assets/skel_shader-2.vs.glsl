@@ -6,10 +6,6 @@ layout(location = 3) in uvec4 inJointIndices; // esto no andaba si lo dejaba com
 // en realidad anda con uvec4 pero por alguna razon me hizo confundir esto. creo que no guarde y pense que no andaba con uvec4
 layout(location = 4) in vec4 inJointWeights;
 
-const int MAX_BONES = 100;
-const int MAX_BONE_INFLUENCE = 4;
-
-
 out vec2 TexCoord0;
 out vec3 Normal0;
 out vec3 LocalPos0;
@@ -26,7 +22,6 @@ uniform mat4 nodeMatrix;
 
 void main() {
 	vec4 locPos;
-	//int jointCount = 0;
 	if (jointCount > 0) {
 		mat4 skinMat = 
 			inJointWeights.x * jointMatrices[int(inJointIndices.x)] +
@@ -37,8 +32,7 @@ void main() {
 		locPos = model * nodeMatrix * skinMat * vec4(aPos, 1.0);
 		Normal0 = normalize(transpose(inverse(mat3(view * model * nodeMatrix * skinMat))) * aNormal);
 	}else{
-	// ver por que no me anda aca el nodematrix y listo ya esttaria
-		locPos = model * vec4(aPos, 1.0);
+		locPos = model * nodeMatrix * vec4(aPos, 1.0);
 		Normal0 = normalize(transpose(inverse(mat3(view * model * nodeMatrix))) * aNormal);
 	}
 
