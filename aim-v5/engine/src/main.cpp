@@ -34,7 +34,7 @@
 #include <cstdarg>
 
 #define PART_11
-#define MAX_NUM_JOINTS 32u
+#define MAX_NUM_JOINTS 320u
 
 void print_matrix(const glm::mat4& mat);
 JPH_SUPPRESS_WARNINGS
@@ -532,7 +532,7 @@ struct GLTFAnimation {
 	float                         currentTime = 0.0f;
 };
 
-uint32_t activeAnimation = 0;
+uint32_t activeAnimation = 1;
 
 // Animation related
 std::vector<GLTFNode*> nodes;
@@ -857,12 +857,13 @@ tinygltf::Model loadGLTFModel() {
 	// lgltf
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "CesiumMan.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "hello.gltf";
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "complete.gltf";
 	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 
 	/*
-		El shader renderiza bien todos los objetos excepto la magazine del rifle	
+		El shader renderiza bien todos los objetos excepto la magazine del rifle
 		Si en el shader hardcodeo el jointCount a 0 igual tiene el mismo comportamiento solo que no hay animaciones
 
 		Incluso probe con una importacion nueva que funcionaba en godot y tampoco.
@@ -870,7 +871,7 @@ tinygltf::Model loadGLTFModel() {
 		Puede ser que se este mandando mal el jointCount al shader pero lo dudo muchisimo porque igual hardcodeado me da lo mismo
 
 		Puede ser que no tengo bien los indices de la magazine y el casing y solo estoy mostrando la primer primitiva. Para probar esto voy a mostrar el primer nodo. Si tenia razon
-		Algo esta mal con los indices por ahi... Creo que el problema es que cuando guardo los valroes de los indices les sumo algo como buf[i] + vert_pos o algo por el estilo cosa de que los 
+		Algo esta mal con los indices por ahi... Creo que el problema es que cuando guardo los valroes de los indices les sumo algo como buf[i] + vert_pos o algo por el estilo cosa de que los
 		indices no se guarden relativamente. El tema es que como yo vuelvo a partir de buffers de 0 digamos, a diferencia de sascha. No deberia tener que sumar y deberia solo usar los indices relativos
 		y no los absolutos
 	*/
@@ -1028,6 +1029,7 @@ void load_skins(tinygltf::Model& gltfModel)
 
 void load_animations(tinygltf::Model& input)
 {
+	DEBUG("load animationssss");
 	animations.resize(input.animations.size());
 
 	for (size_t i = 0; i < input.animations.size(); i++)
@@ -1176,7 +1178,7 @@ void update_animation(float deltaTime)
 		return;
 	}
 	GLTFAnimation& animation = animations[activeAnimation];
-	animation.currentTime += deltaTime;
+	//animation.currentTime += deltaTime;
 	if (animation.currentTime > animation.end)
 	{
 		animation.currentTime -= animation.end;
@@ -1185,44 +1187,69 @@ void update_animation(float deltaTime)
 	for (auto& channel : animation.channels)
 	{
 		AnimationSampler& sampler = animation.samplers[channel.samplerIndex];
+		// Set the node's transformation to the first keyframe
+		if (channel.path == "translation")
+		{
+			channel.node->translation = sampler.outputsVec4[0];
+		}
+		else if (channel.path == "rotation")
+		{
+			glm::quat q;
+			q.x = sampler.outputsVec4[0].x;
+			q.y = sampler.outputsVec4[0].y;
+			q.z = sampler.outputsVec4[0].z;
+			q.w = sampler.outputsVec4[0].w;
+			channel.node->rotation = glm::normalize(q);
+		}
+		else if (channel.path == "scale")
+		{
+			channel.node->scale = sampler.outputsVec4[0];
+		}
+
+		/*
 		for (size_t i = 0; i < sampler.inputs.size() - 1; i++)
 		{
 			if (sampler.interpolation != "LINEAR")
 			{
-				std::cout << "This sample only supports linear interpolations\n";
-				continue;
+				std::cout << "This sample only supports linear interpolations: " << animation.name << "\n";
+				// A_FP_AssaultRifle_Fire
+			//	continue;
+			}
+			else {
+				std::cout << "Processing LINEAR sample for animation: " << animation.name << "\n";
 			}
 
 			// Get the input keyframe values for the current time stamp
-			if ((animation.currentTime >= sampler.inputs[i]) && (animation.currentTime <= sampler.inputs[i + 1]))
+			if ((animation.currentTime >= sampler.inputs[0]) && (animation.currentTime <= sampler.inputs[0 + 1]))
 			{
-				float a = (animation.currentTime - sampler.inputs[i]) / (sampler.inputs[i + 1] - sampler.inputs[i]);
+				float a = (animation.currentTime - sampler.inputs[0]) / (sampler.inputs[0 + 1] - sampler.inputs[0]);
 				if (channel.path == "translation")
 				{
-					channel.node->translation = glm::mix(sampler.outputsVec4[i], sampler.outputsVec4[i + 1], a);
+					channel.node->translation = glm::mix(sampler.outputsVec4[0], sampler.outputsVec4[0 + 1], a);
 				}
 				if (channel.path == "rotation")
 				{
 					glm::quat q1;
-					q1.x = sampler.outputsVec4[i].x;
-					q1.y = sampler.outputsVec4[i].y;
-					q1.z = sampler.outputsVec4[i].z;
-					q1.w = sampler.outputsVec4[i].w;
+					q1.x = sampler.outputsVec4[0].x;
+					q1.y = sampler.outputsVec4[0].y;
+					q1.z = sampler.outputsVec4[0].z;
+					q1.w = sampler.outputsVec4[0].w;
 
 					glm::quat q2;
-					q2.x = sampler.outputsVec4[i + 1].x;
-					q2.y = sampler.outputsVec4[i + 1].y;
-					q2.z = sampler.outputsVec4[i + 1].z;
-					q2.w = sampler.outputsVec4[i + 1].w;
+					q2.x = sampler.outputsVec4[0 + 1].x;
+					q2.y = sampler.outputsVec4[0 + 1].y;
+					q2.z = sampler.outputsVec4[0 + 1].z;
+					q2.w = sampler.outputsVec4[0 + 1].w;
 
 					channel.node->rotation = glm::normalize(glm::slerp(q1, q2, a));
 				}
 				if (channel.path == "scale")
 				{
-					channel.node->scale = glm::mix(sampler.outputsVec4[i], sampler.outputsVec4[i + 1], a);
+					channel.node->scale = glm::mix(sampler.outputsVec4[0], sampler.outputsVec4[0 + 1], a);
 				}
 			}
 		}
+		*/
 	}
 	for (auto& node : nodes)
 	{
@@ -1304,8 +1331,14 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 				skinning_shader->setMat4("model", model_mat);
 			}
 			else {
+				glm::quat qx = glm::angleAxis(glm::radians(60.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(20.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot = qz * qy * qx; // Specify order of rotations here
+
 				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 2.0f, 18.0f)) *
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 2.0f, 3.0f)) *
+					glm::mat4_cast(rot) *
 					glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
 				skinning_shader->setMat4("model", base_model_mat);
 
@@ -1516,7 +1549,6 @@ int main() {
 
 	// build and compile our shader zprogram
 	 // ------------------------------------
-	Shader lightingShader("6.multiple_lights.vs.glsl", "6.multiple_lights.fs.glsl");
 	//Shader lightingShader("5.2.light_casters.vs", "5.2.light_casters.fs");
 	//Shader lightingShader("5.1.light_casters.vs", "5.1.light_casters.fs");
 	//Shader lightingShader("1.colors.vs", "1.colors.fs");
@@ -1890,85 +1922,8 @@ int main() {
 
 
 
-		// lightingShader.set_directional_light(directional_light);
-
-		// lightingShader.set_point_light(pointLights[0], 0);
-		// lightingShader.set_point_light(pointLights[1], 1);
-		// lightingShader.set_point_light(pointLights[2], 2);
-		// lightingShader.set_point_light(pointLights[3], 3);
-		// lightingShader.set_point_lights(pointLights);
-
-		// lightingShader.set_spot_light(spot_light);
-
-#pragma region LIGHT_RENDERING
 
 		float time = fmod(glfwGetTime(), animation.keyframes.back().time); // Loop animation
-
-
-
-		lightingShader.use();
-
-
-
-
-
-		lightingShader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
-		lightingShader.setInt("material.diffuse", 0);
-		lightingShader.setInt("material.specular", 1);
-		lightingShader.setFloat("material.shininess", model_material_shininess);
-
-		if (!fps_mode) {
-			lightingShader.setVec3("viewPos", free_camera.position);
-			lightingShader.setVec3("spotLight.position", free_camera.position);
-			lightingShader.setVec3("spotLight.direction", free_camera.forward);
-		}
-		else {
-			lightingShader.setVec3("viewPos", fps_camera.position);
-			lightingShader.setVec3("spotLight.position", fps_camera.position);
-			lightingShader.setVec3("spotLight.direction", fps_camera.forward);
-		}
-
-		// directional_light
-		lightingShader.setVec3("dirLight.direction", directional_light.direction);
-		lightingShader.setVec3("dirLight.ambient", directional_light.ambient);
-		lightingShader.setVec3("dirLight.diffuse", directional_light.diffuse);
-		lightingShader.setVec3("dirLight.specular", directional_light.specular);
-
-		// point_lights
-		int n = sizeof(point_lights) / sizeof(point_lights[0]);
-		for (int i = 0; i < n; i++) {
-			std::string prefix = "pointLights[" + std::to_string(i) + "]";
-
-			lightingShader.setVec3(prefix + ".position", point_lights[i].transform.pos);
-			lightingShader.setVec3(prefix + ".ambient", point_lights[i].ambient);
-			lightingShader.setVec3(prefix + ".diffuse", point_lights[i].diffuse);
-			lightingShader.setVec3(prefix + ".specular", point_lights[i].specular);
-			lightingShader.setFloat(prefix + ".constant", point_lights[i].constant);
-			lightingShader.setFloat(prefix + ".linear", point_lights[i].linear);
-			lightingShader.setFloat(prefix + ".quadratic", point_lights[i].quadratic);
-		}
-
-		// spot_light
-		lightingShader.setVec3("spotLight.ambient", spot_light.ambient);
-		lightingShader.setVec3("spotLight.diffuse", spot_light.diffuse);
-		lightingShader.setVec3("spotLight.specular", spot_light.specular);
-		lightingShader.setFloat("spotLight.constant", spot_light.constant);
-		lightingShader.setFloat("spotLight.linear", spot_light.linear);
-		lightingShader.setFloat("spotLight.quadratic", spot_light.quadratic);
-		lightingShader.setFloat("spotLight.cutOff", spot_light.cutOff);
-		lightingShader.setFloat("spotLight.outerCutOff", spot_light.outerCutOff);
-
-		lightingShader.setMat4("projection", projection);
-		lightingShader.setMat4("view", view);
-
-		// bind diffuse map
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, diffuseMap);
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, specularMap);
-
-
-#pragma endregion LIGHT_RENDERING
 #else
 
 		lightingShaderGouraud.use();
@@ -1990,56 +1945,6 @@ int main() {
 		lightingShaderGouraud.setMat4("model", model);
 
 #endif
-#pragma region CUBE_OBJECT
-		// render the cube
-		glBindVertexArray(cubeVAO);
-		for (unsigned int i = 0; i < boxes.size(); i++)
-		{
-			// calculate the model matrix for each object and pass it to shader before drawing
-			//glm::mat4 model = glm::mat4(1.0f);
-			//model = glm::translate(model, boxes[i].transform.pos);
-			//float angle = 20.0f * i;
-			//model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f)); // take rotation out for testing
-
-			// with rotations
-			glm::mat4 model = glm::translate(glm::mat4(1.0f), boxes[i].transform.pos) *
-				glm::mat4_cast(boxes[i].transform.rot) *
-				glm::scale(glm::mat4(1.0f), boxes[i].transform.scale);
-			lightingShader.setMat4("model", model);
-
-			glDrawArrays(GL_TRIANGLES, 0, 36);
-		}
-
-		// projectiles
-		for (unsigned int i = 0; i < projectiles.size(); i++)
-		{
-			glm::mat4 model = glm::translate(glm::mat4(1.0f), projectiles[i].transform.pos) *
-				glm::mat4_cast(projectiles[i].transform.rot) *
-				glm::scale(glm::mat4(1.0f), projectiles[i].transform.scale);
-			lightingShader.setMat4("model", model);
-
-			glDrawArrays(GL_TRIANGLES, 0, 36);
-		}
-
-
-		// render floor, is just a plane
-
-		// position * scale
-		//glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), floor_meshbox.transform.scale);
-		// positoin * rotation * scale
-		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
-		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
-		glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos) *
-			glm::mat4_cast(floor_meshbox.transform.rot) *
-			glm::scale(glm::mat4(1.0f), floor_meshbox.transform.scale);
-
-
-		lightingShader.setMat4("model", model_mat);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-		// render floor, is just a plane
-
-
-#pragma endregion CUBE_OBJECT
 
 
 		// skere
@@ -2108,8 +2013,11 @@ int main() {
 
 #if 1
 		skinning_shader.use();
+#pragma region LIGHT_RENDERING
 
-		//skinning_shader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
+		skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
+
+		skinning_shader.setVec3("objectColor", model_color.r, model_color.g, model_color.b);
 		skinning_shader.setInt("material.diffuse", 0);
 		skinning_shader.setInt("material.specular", 1);
 		skinning_shader.setFloat("material.shininess", model_material_shininess);
@@ -2132,6 +2040,7 @@ int main() {
 		skinning_shader.setVec3("dirLight.specular", directional_light.specular);
 
 		// point_lights
+		int n = sizeof(point_lights) / sizeof(point_lights[0]);
 		for (int i = 0; i < n; i++) {
 			std::string prefix = "pointLights[" + std::to_string(i) + "]";
 
@@ -2155,14 +2064,83 @@ int main() {
 		skinning_shader.setFloat("spotLight.outerCutOff", spot_light.outerCutOff);
 		skinning_shader.setMat4("projection", projection);
 		skinning_shader.setMat4("view", view);
+		// bind diffuse map
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, diffuseMap);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, specularMap);
+#pragma endregion LIGHT_RENDERING
+#pragma region CUBE_OBJECT
+		// render the cube
+		glBindVertexArray(cubeVAO);
+		for (unsigned int i = 0; i < boxes.size(); i++)
+		{
+			// calculate the model matrix for each object and pass it to shader before drawing
+			//glm::mat4 model = glm::mat4(1.0f);
+			//model = glm::translate(model, boxes[i].transform.pos);
+			//float angle = 20.0f * i;
+			//model = glm::rotate(model, glm::radians(angle), glm::vec3(1.0f, 0.3f, 0.5f)); // take rotation out for testing
 
+			// with rotations
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), boxes[i].transform.pos) *
+				glm::mat4_cast(boxes[i].transform.rot) *
+				glm::scale(glm::mat4(1.0f), boxes[i].transform.scale);
+			skinning_shader.setMat4("model", model);
+
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+		}
+
+		// projectiles
+		for (unsigned int i = 0; i < projectiles.size(); i++)
+		{
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), projectiles[i].transform.pos) *
+				glm::mat4_cast(projectiles[i].transform.rot) *
+				glm::scale(glm::mat4(1.0f), projectiles[i].transform.scale);
+			skinning_shader.setMat4("model", model);
+
+			glDrawArrays(GL_TRIANGLES, 0, 36);
+		}
+
+
+		// render floor, is just a plane
+
+		// position * scale
+		//glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), floor_meshbox.transform.scale);
+		// positoin * rotation * scale
+		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
+		//glm::mat4 model = glm::scale(glm::rotate(glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos), glm::radians(floor_meshbox.transform.rot.x), glm::vec3(1.0f, 0.0f, 0.0f)), floor_meshbox.transform.scale);
+		glm::mat4 model_mat = glm::translate(glm::mat4(1.0f), floor_meshbox.transform.pos) *
+			glm::mat4_cast(floor_meshbox.transform.rot) *
+			glm::scale(glm::mat4(1.0f), floor_meshbox.transform.scale);
+
+
+		skinning_shader.setMat4("model", model_mat);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+		// render floor, is just a plane
+
+
+#pragma endregion CUBE_OBJECT
+
+#pragma region NODE_RENDERING
 		update_animation(deltaTime);
+		//for (size_t i = 0; i < animations.size(); i++) {
+		//	GLTFAnimation& anim = animations[i];
+		//	std::cout << "Animation name: " << anim.name << ", index: " << i << std::endl;
+		//}
+		/*
+			Animation name: A_FP_AssaultRifle_Fire, index: 0
+			Animation name: A_FP_AssaultRifle_Idle_Loop, index: 1
+			Animation name: A_FP_AssaultRifle_Idle_Pose, index: 2
+			Animation name: A_FP_AssaultRifle_Walk_F_Loop, index: 3
+			Animation name: A_Reference, index: 4
+			Animation name: A_FP_WEP_AssaultRifle_Reload, index: 5
+			Animation name: A_WEP_Reference, index: 6
+		*/
 
 		for (auto& node : nodes) {
 			render_node(node, &skinning_shader, &skel_shader);
 		}
-
-
+#pragma endregion NODE_RENDERING
 #endif
 
 
@@ -2281,6 +2259,7 @@ int main() {
 
 		glfwPollEvents();
 
+#pragma region IMGUI_RENDERING
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -2441,6 +2420,7 @@ int main() {
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+#pragma endregion IMGUI_RENDERING
 #pragma endregion render
 
 		glfwSwapBuffers(window);

@@ -6,7 +6,7 @@ layout(location = 3) in uvec4 inJointIndices; // esto no andaba si lo dejaba com
 // en realidad anda con uvec4 pero por alguna razon me hizo confundir esto. creo que no guarde y pense que no andaba con uvec4
 layout(location = 4) in vec4 inJointWeights;
 
-out vec2 TexCoord0;
+out vec2 TexCoords;
 out vec3 Normal;
 out vec3 FragPos;
 flat out ivec4 BoneIds0;
@@ -16,7 +16,7 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-uniform mat4 jointMatrices[32]; // Adjust the size as needed
+uniform mat4 jointMatrices[320]; // Adjust the size as needed
 uniform int jointCount; // si le dejo uint y el jointcount es uint32_t no anda. Si dejo int y el jointcount sigue siendo uint32_t anda.
 uniform mat4 nodeMatrix;
 
@@ -30,16 +30,16 @@ void main() {
 			inJointWeights.w * jointMatrices[int(inJointIndices.w)];
 
 		locPos = model * nodeMatrix * skinMat * vec4(aPos, 1.0);
-		Normal = normalize(transpose(inverse(mat3(view * model * nodeMatrix * skinMat))) * aNormal);
+		Normal = normalize(transpose(inverse(mat3(model * nodeMatrix * skinMat))) * aNormal);
 	}else{
 		locPos = model * nodeMatrix * vec4(aPos, 1.0);
-		Normal = normalize(transpose(inverse(mat3(view * model * nodeMatrix))) * aNormal);
+		Normal = normalize(transpose(inverse(mat3(model * nodeMatrix))) * aNormal);
 	}
 
 
 	vec4 outWorldPos = locPos;
 	gl_Position = projection * view * outWorldPos;
 
-	TexCoord0 = aTexCoords;
+    TexCoords = aTexCoords;
 	FragPos = vec3(outWorldPos);
 }
