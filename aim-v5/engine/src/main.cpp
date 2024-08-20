@@ -14,6 +14,10 @@
 // este SI anda
 #include "core/logger/logger.h"
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 // imgui includes
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -512,13 +516,125 @@ struct GLTFSkin {
 
 // Animation related
 struct AnimationSampler {
-	std::string            interpolation;
+	enum InterpolationType { LINEAR, STEP, CUBICSPLINE };
+	InterpolationType interpolation;
 	std::vector<float>     inputs;
 	std::vector<glm::vec4> outputsVec4;
+	std::vector<float> outputs;
+	glm::vec4 cubicSplineInterpolation(size_t index, float time, uint32_t stride);
+	void translate(size_t index, float time, GLTFNode* node);
+	void scale(size_t index, float time, GLTFNode* node);
+	void rotate(size_t index, float time, GLTFNode* node);
 };
 
+// Cube spline interpolation function used for translate/scale/rotate with cubic spline animation samples
+// Details on how this works can be found in the specs https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#appendix-c-spline-interpolation
+glm::vec4 AnimationSampler::cubicSplineInterpolation(size_t index, float time, uint32_t stride) {
+	float delta = inputs[index + 1] - inputs[index];
+	float t = (time - inputs[index]) / delta;
+	const size_t current = index * stride * 3;
+	const size_t next = (index + 1) * stride * 3;
+	const size_t A = 0;
+	const size_t V = stride * 1;
+	const size_t B = stride * 2;
+
+	float t2 = powf(t, 2);
+	float t3 = powf(t, 3);
+	glm::vec4 pt{ 0.0f };
+	for (uint32_t i = 0; i < stride; i++) {
+		float p0 = outputs[current + i + V];			// starting point at t = 0
+		float m0 = delta * outputs[current + i + A];	// scaled starting tangent at t = 0
+		float p1 = outputs[next + i + V];				// ending point at t = 1
+		float m1 = delta * outputs[next + i + B];		// scaled ending tangent at t = 1
+		pt[i] = ((2.f * t3 - 3.f * t2 + 1.f) * p0) + ((t3 - 2.f * t2 + t) * m0) + ((-2.f * t3 + 3.f * t2) * p1) + ((t3 - t2) * m0);
+	}
+	return pt;
+}
+
+// Calculates the translation of this sampler for the given node at a given time point depending on the interpolation type
+	// esto parece que es t? float u = std::max(0.0f, time - sampler.inputs[i]) / (sampler.inputs[i + 1] - sampler.inputs[i]);
+void AnimationSampler::translate(size_t index, float time, GLTFNode* node) {
+	switch (interpolation) {
+	case AnimationSampler::InterpolationType::LINEAR: {
+		float u = std::max(0.0f, time - inputs[index]) / (inputs[index + 1] - inputs[index]);
+		node->translation = glm::mix(outputsVec4[index], outputsVec4[index + 1], u);
+		break;
+	}
+	case AnimationSampler::InterpolationType::STEP: {
+		node->translation = outputsVec4[index];
+		break;
+	}
+	case AnimationSampler::InterpolationType::CUBICSPLINE: {
+		node->translation = cubicSplineInterpolation(index, time, 3);
+		break;
+	}
+	}
+}
+
+// Calculates the scale of this sampler for the given node at a given time point depending on the interpolation type
+void AnimationSampler::scale(size_t index, float time, GLTFNode* node) {
+	switch (interpolation) {
+	case AnimationSampler::InterpolationType::LINEAR: {
+		float u = std::max(0.0f, time - inputs[index]) / (inputs[index + 1] - inputs[index]);
+		node->scale = glm::mix(outputsVec4[index], outputsVec4[index + 1], u);
+		break;
+	}
+	case AnimationSampler::InterpolationType::STEP: {
+		node->scale = outputsVec4[index];
+		break;
+	}
+	case AnimationSampler::InterpolationType::CUBICSPLINE: {
+		node->scale = cubicSplineInterpolation(index, time, 3);
+		break;
+	}
+	}
+}
+
+// Calculates the rotation of this sampler for the given node at a given time point depending on the interpolation type
+void AnimationSampler::rotate(size_t index, float time, GLTFNode* node) {
+	switch (interpolation) {
+	case AnimationSampler::InterpolationType::LINEAR: {
+		float u = std::max(0.0f, time - inputs[index]) / (inputs[index + 1] - inputs[index]);
+		glm::quat q1;
+		q1.x = outputsVec4[index].x;
+		q1.y = outputsVec4[index].y;
+		q1.z = outputsVec4[index].z;
+		q1.w = outputsVec4[index].w;
+		glm::quat q2;
+		q2.x = outputsVec4[index + 1].x;
+		q2.y = outputsVec4[index + 1].y;
+		q2.z = outputsVec4[index + 1].z;
+		q2.w = outputsVec4[index + 1].w;
+		node->rotation = glm::normalize(glm::slerp(q1, q2, u));
+		break;
+	}
+	case AnimationSampler::InterpolationType::STEP: {
+		glm::quat q1;
+		q1.x = outputsVec4[index].x;
+		q1.y = outputsVec4[index].y;
+		q1.z = outputsVec4[index].z;
+		q1.w = outputsVec4[index].w;
+		node->rotation = q1;
+		break;
+	}
+	case AnimationSampler::InterpolationType::CUBICSPLINE: {
+		glm::vec4 rot = cubicSplineInterpolation(index, time, 4);
+		glm::quat q;
+		q.x = rot.x;
+		q.y = rot.y;
+		q.z = rot.z;
+		q.w = rot.w;
+		node->rotation = glm::normalize(q);
+		break;
+	}
+	}
+}
+
+
+
 struct AnimationChannel {
-	std::string path;
+	enum PathType { TRANSLATION, ROTATION, SCALE };
+	PathType path;
 	GLTFNode* node;
 	uint32_t    samplerIndex;
 };
@@ -532,7 +648,9 @@ struct GLTFAnimation {
 	float                         currentTime = 0.0f;
 };
 
-uint32_t activeAnimation = 1;
+int32_t activeAnimationIndex = 0;
+bool animationActive = true;
+float animationTimer = 0.0f;
 
 // Animation related
 std::vector<GLTFNode*> nodes;
@@ -558,8 +676,7 @@ struct Info {
 	size_t index_pos;
 };
 
-void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_index, const tinygltf::Model& model, Info& info)
-{
+void load_node(const tinygltf::Node& curr_node, GLTFNode* parent, uint32_t node_index, const tinygltf::Model& model, Info& info) {
 	GLTFNode* new_node = new GLTFNode{};
 	new_node->parent = parent;
 	new_node->skinIndex = curr_node.skin;
@@ -841,7 +958,7 @@ tinygltf::Model loadGLTFModel() {
 	std::string err;
 	std::string warn;
 
-	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle-yup.glb";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "untitled2.glb";
 	//bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
 	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
@@ -858,7 +975,7 @@ tinygltf::Model loadGLTFModel() {
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "CesiumMan.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "hello.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "complete.gltf";
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "jaja.gltf";
 	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 
@@ -899,67 +1016,8 @@ tinygltf::Model loadGLTFModel() {
 	return model;
 }
 
-struct Keyframe {
-	float time;
-	glm::vec3 translation;
-	glm::quat rotation;
-	glm::vec3 scale;
-};
-
-struct Animation {
-	std::vector<Keyframe> keyframes;
-};
-
-Animation createSimpleAnimation() {
-	Animation animation;
-
-	// Define keyframes
-	Keyframe keyframe1;
-	keyframe1.time = 0.0f;
-	keyframe1.translation = glm::vec3(0.0f, 0.0f, 0.0f);
-	keyframe1.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-	keyframe1.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-
-	Keyframe keyframe2;
-	keyframe2.time = 1.0f;
-	keyframe2.translation = glm::vec3(0.0f, 1.0f, 0.0f);
-	keyframe2.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-	keyframe2.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-
-	Keyframe keyframe3;
-	keyframe3.time = 2.0f;
-	keyframe3.translation = glm::vec3(1.0f, 1.0f, 0.0f);
-	keyframe3.rotation = glm::quat(glm::vec3(0.0f, glm::radians(90.0f), 0.0f));
-	keyframe3.scale = glm::vec3(2.0f, 2.0f, 2.0f);
-
-	animation.keyframes.push_back(keyframe1);
-	animation.keyframes.push_back(keyframe2);
-	animation.keyframes.push_back(keyframe3);
-
-	return animation;
-}
 
 
-struct Joint {
-	int parentIndex;
-	glm::mat4 inverseBindMatrix;
-	glm::mat4 currentTransform;
-};
-
-
-glm::mat4 interpolateTransform(const Keyframe& kf1, const Keyframe& kf2, float time) {
-	float alpha = (time - kf1.time) / (kf2.time - kf1.time);
-
-	glm::vec3 translation = glm::mix(kf1.translation, kf2.translation, alpha);
-	glm::quat rotation = glm::slerp(kf1.rotation, kf2.rotation, alpha);
-	glm::vec3 scale = glm::mix(kf1.scale, kf2.scale, alpha);
-
-	glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
-	glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
-	glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
-
-	return translationMatrix * rotationMatrix * scaleMatrix;
-}
 
 
 #define MAX_NUM_BONES_PER_VERTEX 4
@@ -1029,7 +1087,6 @@ void load_skins(tinygltf::Model& gltfModel)
 
 void load_animations(tinygltf::Model& input)
 {
-	DEBUG("load animationssss");
 	animations.resize(input.animations.size());
 
 	for (size_t i = 0; i < input.animations.size(); i++)
@@ -1037,13 +1094,25 @@ void load_animations(tinygltf::Model& input)
 		tinygltf::Animation glTFAnimation = input.animations[i];
 		animations[i].name = glTFAnimation.name;
 
+		if (glTFAnimation.name.empty()) {
+			animations[i].name = std::to_string(animations.size());
+		}
+
 		// Samplers
 		animations[i].samplers.resize(glTFAnimation.samplers.size());
 		for (size_t j = 0; j < glTFAnimation.samplers.size(); j++)
 		{
 			tinygltf::AnimationSampler glTFSampler = glTFAnimation.samplers[j];
 			AnimationSampler& dstSampler = animations[i].samplers[j];
-			dstSampler.interpolation = glTFSampler.interpolation;
+			if (glTFSampler.interpolation == "LINEAR") {
+				dstSampler.interpolation = AnimationSampler::InterpolationType::LINEAR;
+			}
+			if (glTFSampler.interpolation == "STEP") {
+				dstSampler.interpolation = AnimationSampler::InterpolationType::STEP;
+			}
+			if (glTFSampler.interpolation == "CUBICSPLINE") {
+				dstSampler.interpolation = AnimationSampler::InterpolationType::CUBICSPLINE;
+			}
 
 			// Read sampler keyframe input time values
 			{
@@ -1083,6 +1152,9 @@ void load_animations(tinygltf::Model& input)
 					for (size_t index = 0; index < accessor.count; index++)
 					{
 						dstSampler.outputsVec4.push_back(glm::vec4(buf[index], 0.0f));
+						dstSampler.outputs.push_back(buf[index][0]);
+						dstSampler.outputs.push_back(buf[index][1]);
+						dstSampler.outputs.push_back(buf[index][2]);
 					}
 					break;
 				}
@@ -1091,6 +1163,10 @@ void load_animations(tinygltf::Model& input)
 					for (size_t index = 0; index < accessor.count; index++)
 					{
 						dstSampler.outputsVec4.push_back(buf[index]);
+						dstSampler.outputs.push_back(buf[index][0]);
+						dstSampler.outputs.push_back(buf[index][1]);
+						dstSampler.outputs.push_back(buf[index][2]);
+						dstSampler.outputs.push_back(buf[index][3]);
 					}
 					break;
 				}
@@ -1108,9 +1184,25 @@ void load_animations(tinygltf::Model& input)
 		{
 			tinygltf::AnimationChannel glTFChannel = glTFAnimation.channels[j];
 			AnimationChannel& dstChannel = animations[i].channels[j];
-			dstChannel.path = glTFChannel.target_path;
+			if (glTFChannel.target_path == "rotation") {
+				dstChannel.path = AnimationChannel::PathType::ROTATION;
+			}
+			if (glTFChannel.target_path == "translation") {
+				dstChannel.path = AnimationChannel::PathType::TRANSLATION;
+			}
+			if (glTFChannel.target_path == "scale") {
+				dstChannel.path = AnimationChannel::PathType::SCALE;
+			}
+			if (glTFChannel.target_path == "weights") {
+				std::cout << "weights not yet supported, skipping channel" << std::endl;
+				continue;
+			}
 			dstChannel.samplerIndex = glTFChannel.sampler;
 			dstChannel.node = nodeFromIndex(glTFChannel.target_node);
+			if (!dstChannel.node) {
+				FATAL("COULD NOT LOAD ANIMATION NODE - EMPTY");
+				abort();
+			}
 		}
 	}
 }
@@ -1170,92 +1262,54 @@ void GLTFNode::update()
 	}
 }
 
-void update_animation(float deltaTime)
+void updateAnimation(uint32_t index, float time)
 {
-	if (animations.size() == 0 || activeAnimation > static_cast<uint32_t>(animations.size()) - 1)
-	{
-		std::cout << "No animation with index " << activeAnimation << std::endl;
+	if (animations.empty()) {
+		std::cout << ".glTF does not contain animation." << std::endl;
 		return;
 	}
-	GLTFAnimation& animation = animations[activeAnimation];
-	//animation.currentTime += deltaTime;
-	if (animation.currentTime > animation.end)
-	{
-		animation.currentTime -= animation.end;
+	if (index > static_cast<uint32_t>(animations.size()) - 1) {
+		std::cout << "No animation with index " << index << std::endl;
+		return;
 	}
+	GLTFAnimation& animation = animations[index];
+	std::cout << "Current animation: " << animation.name << std::endl;
 
-	for (auto& channel : animation.channels)
-	{
+	bool updated = false;
+	for (auto& channel : animation.channels) {
 		AnimationSampler& sampler = animation.samplers[channel.samplerIndex];
-		// Set the node's transformation to the first keyframe
-		if (channel.path == "translation")
-		{
-			channel.node->translation = sampler.outputsVec4[0];
-		}
-		else if (channel.path == "rotation")
-		{
-			glm::quat q;
-			q.x = sampler.outputsVec4[0].x;
-			q.y = sampler.outputsVec4[0].y;
-			q.z = sampler.outputsVec4[0].z;
-			q.w = sampler.outputsVec4[0].w;
-			channel.node->rotation = glm::normalize(q);
-		}
-		else if (channel.path == "scale")
-		{
-			channel.node->scale = sampler.outputsVec4[0];
+		if (sampler.inputs.size() > sampler.outputsVec4.size()) {
+			std::cout << "CONTINUEEE********\n";
+			continue;
 		}
 
-		/*
-		for (size_t i = 0; i < sampler.inputs.size() - 1; i++)
-		{
-			if (sampler.interpolation != "LINEAR")
-			{
-				std::cout << "This sample only supports linear interpolations: " << animation.name << "\n";
-				// A_FP_AssaultRifle_Fire
-			//	continue;
-			}
-			else {
-				std::cout << "Processing LINEAR sample for animation: " << animation.name << "\n";
-			}
-
-			// Get the input keyframe values for the current time stamp
-			if ((animation.currentTime >= sampler.inputs[0]) && (animation.currentTime <= sampler.inputs[0 + 1]))
-			{
-				float a = (animation.currentTime - sampler.inputs[0]) / (sampler.inputs[0 + 1] - sampler.inputs[0]);
-				if (channel.path == "translation")
-				{
-					channel.node->translation = glm::mix(sampler.outputsVec4[0], sampler.outputsVec4[0 + 1], a);
-				}
-				if (channel.path == "rotation")
-				{
-					glm::quat q1;
-					q1.x = sampler.outputsVec4[0].x;
-					q1.y = sampler.outputsVec4[0].y;
-					q1.z = sampler.outputsVec4[0].z;
-					q1.w = sampler.outputsVec4[0].w;
-
-					glm::quat q2;
-					q2.x = sampler.outputsVec4[0 + 1].x;
-					q2.y = sampler.outputsVec4[0 + 1].y;
-					q2.z = sampler.outputsVec4[0 + 1].z;
-					q2.w = sampler.outputsVec4[0 + 1].w;
-
-					channel.node->rotation = glm::normalize(glm::slerp(q1, q2, a));
-				}
-				if (channel.path == "scale")
-				{
-					channel.node->scale = glm::mix(sampler.outputsVec4[0], sampler.outputsVec4[0 + 1], a);
+		for (size_t i = 0; i < sampler.inputs.size() - 1; i++) {
+			if ((time >= sampler.inputs[i]) && (time <= sampler.inputs[i + 1])) {
+				float u = std::max(0.0f, time - sampler.inputs[i]) / (sampler.inputs[i + 1] - sampler.inputs[i]);
+				if (u <= 1.0f) {
+					switch (channel.path) {
+					case AnimationChannel::PathType::TRANSLATION:
+						sampler.translate(i, time, channel.node);
+						break;
+					case AnimationChannel::PathType::SCALE:
+						sampler.scale(i, time, channel.node);
+						break;
+					case AnimationChannel::PathType::ROTATION:
+						sampler.rotate(i, time, channel.node);
+						break;
+					}
+					updated = true;
 				}
 			}
 		}
-		*/
 	}
-	for (auto& node : nodes)
-	{
-		node->update();
+	if (updated) {
+		for (auto& node : nodes) {
+			node->update();
+		}
 	}
 }
+
 
 
 std::vector<glm::mat4> get_inverse_bind_matrix(const tinygltf::Model& model) {
@@ -1315,7 +1369,7 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 		for (const auto& mesh : node->mesh->primitives) {
 			glBindVertexArray(mesh->vao);
 
-			std::cout << "node name: " << node->name << " Number fo primitives: " << node->mesh->primitives.size() << std::endl;
+			//std::cout << "node name: " << node->name << " Number fo primitives: " << node->mesh->primitives.size() << std::endl;
 
 			skinning_shader->use();
 			if (node->name == "Cesium_Man") {
@@ -1337,9 +1391,9 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 				glm::quat rot = qz * qy * qx; // Specify order of rotations here
 
 				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 2.0f, 3.0f)) *
-					glm::mat4_cast(rot) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					//glm::mat4_cast(rot) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
 				skinning_shader->setMat4("model", base_model_mat);
 
 			}
@@ -1361,6 +1415,129 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 		render_node(child, skinning_shader, regular_shader);
 	}
 }
+
+
+struct AssimpVertex {
+	// position
+	glm::vec3 position;
+	// normal
+	glm::vec3 normal;
+	// texCoords
+	glm::vec2 aTexCoords;
+	// tangent
+	glm::vec3 Tangent;
+	// bitangent
+	glm::vec3 Bitangent;
+	glm::uvec4 joints;
+	glm::vec4 weights;
+};
+
+
+
+struct AssimpMesh {
+	GLuint vao;
+	GLuint vbo;
+	GLuint ebo;
+	uint32_t index_count;
+};
+
+
+struct AssimpModel {
+	std::vector<uint32_t> assimp_indices;
+	std::vector<AssimpMesh*> meshes;
+};
+
+void processAssimpNode(AssimpModel* model, aiNode* node, const aiScene* scene);
+
+void loadAssimp(AssimpModel* assimp_model) {
+	std::string path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx";
+	Assimp::Importer import;
+	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
+
+	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+	{
+		std::cout << "ERROR::ASSIMP::" << import.GetErrorString() << std::endl;
+		return;
+	}
+	return processAssimpNode(assimp_model, scene->mRootNode, scene);
+}
+
+void processMesh(AssimpModel* model, aiMesh* mesh, const aiScene* scene);
+
+void processAssimpNode(AssimpModel* model, aiNode* node, const aiScene* scene) {
+	for (int i = 0; i < node->mNumChildren; i++) {
+		processAssimpNode(model, node->mChildren[i], scene);
+	}
+	for (int i = 0; i < node->mNumMeshes; i++) {
+		aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+		processMesh(model, mesh, scene);
+	}
+}
+
+
+
+void processMesh(AssimpModel* model, aiMesh* mesh, const aiScene* scene)
+{
+	AssimpMesh* new_mesh = new AssimpMesh{};
+
+	// walk through each of the mesh's vertices
+	std::cout << mesh->mNumVertices << std::endl;
+	std::vector<AssimpVertex> assimp_vertices;
+	assimp_vertices.reserve(mesh->mNumVertices);
+	for (unsigned int i = 0; i < mesh->mNumVertices; i++)
+	{
+		AssimpVertex vertex;
+		glm::vec3 vector; // we declare a placeholder vector since assimp uses its own vector class that doesn't directly convert to glm's vec3 class so we transfer the data to this placeholder glm::vec3 first.
+		// positions
+		vector.x = mesh->mVertices[i].x;
+		vector.y = mesh->mVertices[i].y;
+		vector.z = mesh->mVertices[i].z;
+		vertex.position = vector;
+		// normals
+		if (mesh->HasNormals())
+		{
+			vector.x = mesh->mNormals[i].x;
+			vector.y = mesh->mNormals[i].y;
+			vector.z = mesh->mNormals[i].z;
+			vertex.normal = vector;
+		}
+		vertex.aTexCoords = glm::vec2(0.0f, 0.0f);
+
+		assimp_vertices.push_back(vertex);
+	}
+	std::vector<uint32_t> assimp_indices;
+	// now wak through each of the mesh's faces (a face is a mesh its triangle) and retrieve the corresponding vertex indices.
+	for (unsigned int i = 0; i < mesh->mNumFaces; i++)
+	{
+		aiFace face = mesh->mFaces[i];
+		// retrieve all indices of the face and store them in the indices vector
+		for (unsigned int j = 0; j < face.mNumIndices; j++)
+			assimp_indices.push_back(face.mIndices[j]);
+	}
+
+	new_mesh->index_count = assimp_indices.size();
+	glGenVertexArrays(1, &new_mesh->vao);
+	glBindVertexArray(new_mesh->vao);
+
+	glGenBuffers(1, &new_mesh->vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, new_mesh->vbo);
+	glBufferData(GL_ARRAY_BUFFER, assimp_vertices.size() * sizeof(AssimpVertex), assimp_vertices.data(), GL_STATIC_DRAW);
+
+	glGenBuffers(1, &new_mesh->ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, new_mesh->ebo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, assimp_indices.size() * sizeof(uint32_t), assimp_indices.data(), GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, position));
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, normal));
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, aTexCoords));
+	glEnableVertexAttribArray(2);
+	glBindVertexArray(0);
+
+	model->meshes.push_back(new_mesh);
+}
+
 
 int main() {
 	tinygltf::Model model = loadGLTFModel();
@@ -1402,6 +1579,17 @@ int main() {
 	for (int i = 0; i < model.animations.size(); i++) {
 		INFO("%s ", model.animations[i].name.c_str());
 	}
+	/*
+
+A_FP_AssaultRifle_Fire
+Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Loop
+Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Pose
+Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Walk_F_Loop
+Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_Reference
+Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_WEP_AssaultRifle_Reload
+Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
+
+	*/
 
 
 	projectiles.reserve(100);
@@ -1455,6 +1643,9 @@ int main() {
 		return -1;
 	}
 	INFO("OpenGL initialized successfully!");
+	AssimpModel assault_rifle;
+	loadAssimp(&assault_rifle);
+
 
 	size_t vertexCount = 0, indexCount = 0;
 	const tinygltf::Scene& scene = model.scenes[0];
@@ -1870,7 +2061,6 @@ int main() {
 
 	unsigned int diffuseMap = loadTexture("container2.png");
 	unsigned int specularMap = loadTexture("container2_specular.png");
-	Animation animation = createSimpleAnimation();
 	// render loop
 	// -----------
 	glm::vec3 model_color = glm::vec3(1.0f, 0.5f, 0.31f);
@@ -1922,8 +2112,6 @@ int main() {
 
 
 
-
-		float time = fmod(glfwGetTime(), animation.keyframes.back().time); // Loop animation
 #else
 
 		lightingShaderGouraud.use();
@@ -2122,7 +2310,13 @@ int main() {
 #pragma endregion CUBE_OBJECT
 
 #pragma region NODE_RENDERING
-		update_animation(deltaTime);
+		if (animationActive && animations.size() > 0) {
+			animationTimer += deltaTime;
+			if (animationTimer > animations[activeAnimationIndex].end) {
+				animationTimer -= animations[activeAnimationIndex].end;
+			}
+			updateAnimation(activeAnimationIndex, animationTimer);
+		}
 		//for (size_t i = 0; i < animations.size(); i++) {
 		//	GLTFAnimation& anim = animations[i];
 		//	std::cout << "Animation name: " << anim.name << ", index: " << i << std::endl;
@@ -2140,6 +2334,39 @@ int main() {
 		for (auto& node : nodes) {
 			render_node(node, &skinning_shader, &skel_shader);
 		}
+
+		// assimp
+		for (auto& mesh : assault_rifle.meshes) {
+			glBindVertexArray(mesh->vao);
+
+			skinning_shader.use();
+			glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+			glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			glm::quat rot = qz * qy * qx; // Specify order of rotations here
+
+			glm::mat4 base_model_mat =
+				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -30.0f, 0.0f)) *
+				glm::mat4_cast(rot);
+			//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+			skinning_shader.setMat4("model", base_model_mat);
+
+			glUseProgram(skinning_shader_id);
+			GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+			glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
+
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+
+			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+			glBindVertexArray(0);
+
+		}
+		// assimp
+
+
+
 #pragma endregion NODE_RENDERING
 #endif
 
@@ -2308,6 +2535,9 @@ int main() {
 
 		// this could be: Mesh.render_gui()
 		ImGui::Begin("Model", nullptr, global_flags);
+		ImGui::Checkbox("Animation mode", &animationActive);
+		ImGui::InputInt("active anim index", &activeAnimationIndex);
+
 		if (ImGui::CollapsingHeader("model transform", ImGuiTreeNodeFlags_DefaultOpen)) {
 			//ImGui::DragFloat3("model pos", glm::value_ptr(floor_pos), 0.1f);
 			//ImGui::DragFloat3("model scale", glm::value_ptr(floor_scale), 0.1f);
@@ -2424,7 +2654,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-		}
+	}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -2453,7 +2683,7 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	return 0;
-	}
+}
 
 // weird behaviour with chars int uints int8 etc
 unsigned int bitflag_base = 0x00034000;
