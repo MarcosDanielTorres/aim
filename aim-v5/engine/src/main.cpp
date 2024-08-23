@@ -9,8 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-//#define GLM_ENABLE_EXPERIMENTAL
-//#include <glm/gtx/quaternion.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
 // este NO anda
 //#include <core/logger/logger.h>
 // este SI anda
@@ -1436,7 +1436,7 @@ struct AssimpVertex {
 	glm::vec3 position;
 	glm::vec3 normal;
 	glm::vec2 aTexCoords;
-    int joints[4];
+    uint32_t joints[4];
     float weights[4];
 	//glm::uvec4 joints;
 	//glm::vec4 weights;
@@ -1694,7 +1694,7 @@ private:
 		if (1 == m_NumRotations)
 		{
 			auto rotation = glm::normalize(m_Rotations[0].orientation);
-			//return glm::toMat4(rotation);
+			return glm::toMat4(rotation);
 		}
 
 		int p0Index = GetRotationIndex(animationTime);
@@ -1704,7 +1704,7 @@ private:
 		glm::quat finalRotation = glm::slerp(m_Rotations[p0Index].orientation, m_Rotations[p1Index].orientation
 			, scaleFactor);
 		finalRotation = glm::normalize(finalRotation);
-		//return glm::toMat4(finalRotation);
+		return glm::toMat4(finalRotation);
 
 	}
 
@@ -1758,9 +1758,9 @@ public:
 		auto animation = scene->mAnimations[0];
 		m_Duration = animation->mDuration;
 		m_TicksPerSecond = animation->mTicksPerSecond;
-		m_TicksPerSecond = 1000;
+		//m_TicksPerSecond = 1000;
 		ReadHeirarchyData(m_RootNode, scene->mRootNode);
-		//ReadMissingBones(animation);
+		ReadMissingBones(animation);
 		std::cout << "Animation name is: " << scene->mAnimations[0]->mName.C_Str() << std::endl;
 	}
 
@@ -1787,18 +1787,19 @@ public:
 
 	inline const AssimpNodeData& GetRootNode() { return m_RootNode; }
 
-	inline const std::map<std::string, AssimpBoneInfo>& GetBoneIDMap()
-	{
-		return m_BoneInfoMap;
-	}
+	//inline const std::map<std::string, AssimpBoneInfo>& GetBoneIDMap()
+	//{
+	//	return m_BoneInfoMap;
+	//}
 
 private:
 	void ReadMissingBones(const aiAnimation* animation)
 	{
 		int size = animation->mNumChannels;
 
-		auto& boneInfoMap = m_BoneInfoMap;//getting m_BoneInfoMap from Model class
-		int& boneCount = m_BoneCounter; //getting the m_BoneCounter from Model class
+		// these are already global
+		//auto& boneInfoMap = m_BoneInfoMap;//getting m_BoneInfoMap from Model class
+		//int& boneCount = m_BoneCounter; //getting the m_BoneCounter from Model class
 
 		//reading channels(bones engaged in an animation and their keyframes)
 		for (int i = 0; i < size; i++)
@@ -1806,16 +1807,16 @@ private:
 			auto channel = animation->mChannels[i];
 			std::string boneName = channel->mNodeName.data;
 
-			if (boneInfoMap.find(boneName) == boneInfoMap.end())
+			if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())
 			{
-				boneInfoMap[boneName].id = boneCount;
-				boneCount++;
+				m_BoneInfoMap[boneName].id = m_BoneCounter;
+				m_BoneCounter++;
 			}
 			m_Bones.push_back(Bone(channel->mNodeName.data,
-				boneInfoMap[channel->mNodeName.data].id, channel));
+				m_BoneInfoMap[channel->mNodeName.data].id, channel));
 		}
 
-		m_BoneInfoMap = m_BoneInfoMap;
+		m_BoneInfoMap; // i dont know if this is a copy or a reference
 	}
 
 	void ReadHeirarchyData(AssimpNodeData& dest, const aiNode* src)
@@ -1837,7 +1838,6 @@ private:
 	int m_TicksPerSecond;
 	std::vector<Bone> m_Bones;
 	AssimpNodeData m_RootNode;
-	std::map<std::string, AssimpBoneInfo> m_BoneInfoMap;
 };
 #pragma endregion assimp_animation
 
@@ -1888,11 +1888,12 @@ public:
 
 		glm::mat4 globalTransformation = parentTransform * nodeTransform;
 
-		auto boneInfoMap = m_CurrentAnimation->GetBoneIDMap();
-		if (boneInfoMap.find(nodeName) != boneInfoMap.end())
+		//auto boneInfoMap = m_CurrentAnimation->GetBoneIDMap(); // it looks like this takes the map as the animation have it, which means its a copy and not a reference
+		// should investigate
+		if (m_BoneInfoMap.find(nodeName) != m_BoneInfoMap.end())
 		{
-			int index = boneInfoMap[nodeName].id;
-			glm::mat4 offset = boneInfoMap[nodeName].offset;
+			int index = m_BoneInfoMap[nodeName].id;
+			glm::mat4 offset = m_BoneInfoMap[nodeName].offset;
 			m_FinalBoneMatrices[index] = globalTransformation * offset;
 		}
 
@@ -2060,21 +2061,21 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 			glEnableVertexAttribArray(2);
 
 			if (has_skin) {
-				glVertexAttribIPointer(3, 4, GL_INT, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
+				glVertexAttribIPointer(3, 4, GL_UNSIGNED_INT, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
 				//glVertexAttribPointer(3, 4, GL_INT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
 				glEnableVertexAttribArray(3);
 				glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, weights));
 				glEnableVertexAttribArray(4);
 
-				//delete[] vertex_id_to_bone_id;
+				delete[] vertex_id_to_bone_id;
 			}
 			glBindVertexArray(0);
 
-			for (size_t i = 0; i < assimp_vertices.size(); i++) {
-				std::cout << "Vertex: " << i << std::endl;
-				std::cout << "\t joints: [" << assimp_vertices[i].joints[0] << ", " << assimp_vertices[i].joints[1] << ", " << assimp_vertices[i].joints[2] << ", " << assimp_vertices[i].joints[3] << "]";
-				std::cout << "\t weights: [" << assimp_vertices[i].weights[0] << ", " << assimp_vertices[i].weights[1] << ", " << assimp_vertices[i].weights[2] << ", " << assimp_vertices[i].weights[3] << "]";
-			}
+			//for (size_t i = 0; i < assimp_vertices.size(); i++) {
+				//std::cout << "Vertex: " << i << std::endl;
+				//std::cout << "\t joints: [" << assimp_vertices[i].joints[0] << ", " << assimp_vertices[i].joints[1] << ", " << assimp_vertices[i].joints[2] << ", " << assimp_vertices[i].joints[3] << "]";
+				//std::cout << "\t weights: [" << assimp_vertices[i].weights[0] << ", " << assimp_vertices[i].weights[1] << ", " << assimp_vertices[i].weights[2] << ", " << assimp_vertices[i].weights[3] << "]";
+			//}
 
 			new_mesh->meshes.push_back(new_primitive);
 		}
@@ -2122,7 +2123,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 		for (const auto& mesh : node->mesh->meshes) {
 			glBindVertexArray(mesh->vao);
 
-			//std::cout << "node name: " << node->name << std::endl;
+			std::cout << "node name: " << node->name << std::endl;
 
 			skinning_shader->use();
 			glm::quat qx = glm::angleAxis(glm::radians(60.0f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -2133,7 +2134,8 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			glm::mat4 base_model_mat =
 				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
-				glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 			skinning_shader->setMat4("model", base_model_mat);
 			//skinning_shader->setMat4("model", glm::mat4(1.0f));
 
@@ -2142,14 +2144,18 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			//glUniformMatrix4fv(jointMatricesLoc, node->mesh->uniformBlock.jointCount, GL_FALSE, glm::value_ptr(node->mesh->uniformBlock.jointMatrix[0]));
 
 			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
-			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+
+			if (node->name == "Vampire" || node->name == "Circle")
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+			else
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
 			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->mesh->uniformBlock.matrix[0][0]);
 			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->matrix[0][0]);
 			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
 
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
-			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 			glBindVertexArray(0);
 		}
 	}
@@ -2246,9 +2252,11 @@ int main() {
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle_magazine, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
 	//loadAssimp(&assault_rifle_casing, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx");
 	//load_assimp_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Idle_Pose.fbx");
-	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae"));
-	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae");
-	//Animator animator(&danceAnimation);
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae"));
+	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae");
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano2.glb"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano2.glb");
+	Animator animator(&danceAnimation);
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano.glb"));
 	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano.glb");
 	//Animator animator(&danceAnimation);
@@ -2953,22 +2961,19 @@ int main() {
 		//glUseProgram(skinning_shader_id);
 		//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
-		//animator.UpdateAnimation(deltaTime);
-		//skinning_shader.use();
-		//auto transforms = animator.GetFinalBoneMatrices();
-		//for (int i = 0; i < transforms.size(); ++i)
-		//	skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
-		////skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
 
-		//glUseProgram(skinning_shader_id);
-		//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-		//glUniformMatrix4fv(jointMatricesLoc, transforms.size(), GL_FALSE, glm::value_ptr(transforms[0]));
-		//for (auto& scene : scene_graph.nodes) {
-		//	for (auto& node : scene.assimp_nodes) {
-		//		render_assimp_node(node, &skinning_shader, &skel_shader);
-		//	}
+		if (animationActive)
+			animator.UpdateAnimation(deltaTime);
+		skinning_shader.use();
+		auto transforms = animator.GetFinalBoneMatrices();
+		for (int i = 0; i < transforms.size(); ++i)
+			skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
 
-		//}
+		for (auto& scene : scene_graph.nodes) {
+			for (auto& node : scene.assimp_nodes) {
+				render_assimp_node(node, &skinning_shader, &skel_shader);
+			}
+		}
 
 		// assimp
 		/*
