@@ -37,7 +37,7 @@ void aim_log_output(LOG_LEVEL log_level, const char* msg, const char* file, int 
       src_path = file; // If /src is not found, use the full path
   }
 
-  snprintf(out_message, 8800, "%s %s [%s] %s:%d: %s\n", __DATE__, __TIME__, log_prefix, src_path, line, buf);
+  snprintf(out_message, 8800, "%s %s [%s] %s:%d: %s", __DATE__, __TIME__, log_prefix, src_path, line, buf);
 
  if (log_level > 3){
    fprintf(stderr, "\033[%sm%s\033[0m", color_strings[log_level], out_message);

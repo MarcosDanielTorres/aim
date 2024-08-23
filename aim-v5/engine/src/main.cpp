@@ -9,6 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+//#define GLM_ENABLE_EXPERIMENTAL
+//#include <glm/gtx/quaternion.hpp>
 // este NO anda
 //#include <core/logger/logger.h>
 // este SI anda
@@ -39,6 +41,7 @@
 
 #define PART_11
 #define MAX_NUM_JOINTS 320u
+#define MAX_NUM_BONES_PER_VERTEX 4
 
 void print_matrix(const glm::mat4& mat);
 JPH_SUPPRESS_WARNINGS
@@ -470,6 +473,7 @@ struct Mesh {
 };
 
 struct GLTFSkin;
+
 struct GLTFNode {
 	GLTFNode* parent;
 	std::string name;
@@ -495,6 +499,8 @@ struct GLTFNode {
 		GLTFNode* curr_parent = parent;
 
 		while (curr_parent) {
+			//print_matrix(curr_parent->getLocalMatrix());
+			//print_matrix(node_matrix);
 			node_matrix = curr_parent->getLocalMatrix() * node_matrix;
 			curr_parent = curr_parent->parent;
 		}
@@ -959,6 +965,8 @@ tinygltf::Model loadGLTFModel() {
 	std::string warn;
 
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "untitled2.glb";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "Glock.glb";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "gusano.glb";
 	//bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "default-cube.gltf";
 	//bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path); // for binary glTF(.glb)	
@@ -975,7 +983,10 @@ tinygltf::Model loadGLTFModel() {
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "CesiumMan.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "hello.gltf";
 	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "assault-rifle.gltf";
-	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "jaja.gltf";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "complete.gltf";
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "RIG_AssaultRifle.gltf";
+	std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "jaja.gltf"; // esta es completa con los brazos solos
+	//std::string model_path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/" + "gusano.gltf"; // esta es completa con los brazos solos
 	bool ret = loader.LoadASCIIFromFile(&model, &err, &warn, model_path);
 
 
@@ -1015,12 +1026,6 @@ tinygltf::Model loadGLTFModel() {
 
 	return model;
 }
-
-
-
-
-
-#define MAX_NUM_BONES_PER_VERTEX 4
 
 
 GLTFNode* findNode(GLTFNode* parent, uint32_t index) {
@@ -1228,6 +1233,12 @@ void GLTFNode::update()
 		{
 			mesh->uniformBlock.matrix = m;
 			glm::mat4              inverseTransform = glm::inverse(m);
+			/*
+			`numJoints`: la cantidad de joints que tiene el mesh
+			Como maximo cada vertex del mesh puede ser afectado por 4 huesos.
+			De cada hueso se conoce un weight que determina cuanta influencia da cada hueso.
+			Cada hueso tiene una inverseBindMatrix y tiene un transform relativo al hueso padre.
+			*/
 			size_t numJoints = std::min((uint32_t)skin->joints.size(), MAX_NUM_JOINTS);
 			for (size_t i = 0; i < numJoints; i++)
 			{
@@ -1235,6 +1246,7 @@ void GLTFNode::update()
 				glm::mat4 jointMat = jointNode->getMatrix() * skin->inverseBindMatrices[i];
 				jointMat = inverseTransform * jointMat;
 				mesh->uniformBlock.jointMatrix[i] = jointMat;
+			//	mesh->uniformBlock.jointMatrix[i] = glm::mat4(1.0f);
 			}
 			mesh->uniformBlock.jointCount = static_cast<uint32_t>(numJoints);
 
@@ -1249,6 +1261,7 @@ void GLTFNode::update()
 			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &mesh->uniformBlock.matrix[0][0]);
 		}
 		else {
+			// transform relative al parent
 			mesh->uniformBlock.matrix = m;
 
 			//glUseProgram(skinning_shader_id);
@@ -1363,6 +1376,7 @@ void getNodeProps(const tinygltf::Node& node, const tinygltf::Model& model, size
 	}
 }
 
+
 void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader) {
 	if (node->mesh) {
 
@@ -1417,178 +1431,746 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 }
 
 
+
 struct AssimpVertex {
-	// position
 	glm::vec3 position;
-	// normal
 	glm::vec3 normal;
-	// texCoords
 	glm::vec2 aTexCoords;
-	// tangent
-	glm::vec3 Tangent;
-	// bitangent
-	glm::vec3 Bitangent;
-	glm::uvec4 joints;
-	glm::vec4 weights;
+    int joints[4];
+    float weights[4];
+	//glm::uvec4 joints;
+	//glm::vec4 weights;
+};
+
+struct BoneData {
+	int joints[MAX_NUM_BONES_PER_VERTEX];
+	float weights[MAX_NUM_BONES_PER_VERTEX];
+	int count = 0;
 };
 
 
-
-struct AssimpMesh {
+struct AssimpPrimitive {
 	GLuint vao;
 	GLuint vbo;
 	GLuint ebo;
 	uint32_t index_count;
 };
 
-
-struct AssimpModel {
-	std::vector<uint32_t> assimp_indices;
-	std::vector<AssimpMesh*> meshes;
+struct AssimpMesh {
+	std::vector<AssimpPrimitive*> meshes;
+	struct UniformBlock {
+		glm::mat4 matrix;
+		glm::mat4 jointMatrix[MAX_NUM_JOINTS]{};
+		uint32_t jointCount{ 0 };
+	} uniformBlock;
 };
 
-void processAssimpNode(AssimpModel* model, aiNode* node, const aiScene* scene);
+struct AssimpNode {
+	AssimpMesh* mesh;
+	glm::mat4 matrix;
+	std::string name;
+	AssimpNode* parent;
+	std::vector<AssimpNode*> children;
+	bool skin = false;
+};
 
-void loadAssimp(AssimpModel* assimp_model) {
-	std::string path = std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx";
+
+struct AssimpBoneInfo {
+	uint32_t id;
+	glm::mat4 offset;
+	//struct GLTFSkin {
+	//	std::string            name;
+	//	GLTFNode* skeletonRoot = nullptr;
+	//	std::vector<glm::mat4> inverseBindMatrices;
+	//	std::vector<GLTFNode*>    joints;
+	//};
+};
+
+struct AssimpSkin {
+	// esto es la armature basicamente o todo el skeleton
+	std::vector<AssimpNode*> joints;
+	std::vector<glm::mat4> offset;
+};
+
+
+
+std::unordered_map<std::string, AssimpBoneInfo> m_BoneInfoMap;
+int m_BoneCounter = 0;
+
+struct SceneGraphNode {
+	std::vector<AssimpNode*> assimp_nodes;
+	std::vector<AssimpSkin*> skins;
+	//std::vector<AssimpAnimation> animations;
+	std::string scene_name;
+
+};
+
+struct SceneGraph {
+	std::vector<SceneGraphNode> nodes;
+	std::unordered_map<std::string, AssimpSkin*> skins;
+};
+
+void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node);
+
+SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
+	//lass
 	Assimp::Importer import;
 	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
 
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
-		std::cout << "ERROR::ASSIMP::" << import.GetErrorString() << std::endl;
-		return;
+		FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
+		abort();
 	}
-	return processAssimpNode(assimp_model, scene->mRootNode, scene);
+	SceneGraphNode scene_graph_node;
+	scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
+	processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
+	return scene_graph_node;
 }
 
-void processMesh(AssimpModel* model, aiMesh* mesh, const aiScene* scene);
+#pragma region helpers
 
-void processAssimpNode(AssimpModel* model, aiNode* node, const aiScene* scene) {
-	for (int i = 0; i < node->mNumChildren; i++) {
-		processAssimpNode(model, node->mChildren[i], scene);
+namespace AssimpGLMHelpers {
+	static inline glm::mat4 ConvertMatrixToGLMFormat(const aiMatrix4x4& from)
+	{
+		glm::mat4 to;
+		//the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
+		to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
+		to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
+		to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
+		to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
+		return to;
 	}
-	for (int i = 0; i < node->mNumMeshes; i++) {
-		aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-		processMesh(model, mesh, scene);
+
+	static inline glm::vec3 GetGLMVec(const aiVector3D& vec)
+	{
+		return glm::vec3(vec.x, vec.y, vec.z);
+	}
+
+	static inline glm::quat GetGLMQuat(const aiQuaternion& pOrientation)
+	{
+		return glm::quat(pOrientation.w, pOrientation.x, pOrientation.y, pOrientation.z);
 	}
 }
 
+#pragma endregion helpers
 
+#pragma region bones_container
+/* Container for bone data */
 
-void processMesh(AssimpModel* model, aiMesh* mesh, const aiScene* scene)
+struct KeyPosition
 {
-	AssimpMesh* new_mesh = new AssimpMesh{};
+	glm::vec3 position;
+	float timeStamp;
+};
 
-	// walk through each of the mesh's vertices
-	std::cout << mesh->mNumVertices << std::endl;
-	std::vector<AssimpVertex> assimp_vertices;
-	assimp_vertices.reserve(mesh->mNumVertices);
-	for (unsigned int i = 0; i < mesh->mNumVertices; i++)
+struct KeyRotation
+{
+	glm::quat orientation;
+	float timeStamp;
+};
+
+struct KeyScale
+{
+	glm::vec3 scale;
+	float timeStamp;
+};
+
+class Bone
+{
+public:
+	Bone(const std::string& name, int ID, const aiNodeAnim* channel)
+		:
+		m_Name(name),
+		m_ID(ID),
+		m_LocalTransform(1.0f)
 	{
-		AssimpVertex vertex;
-		glm::vec3 vector; // we declare a placeholder vector since assimp uses its own vector class that doesn't directly convert to glm's vec3 class so we transfer the data to this placeholder glm::vec3 first.
-		// positions
-		vector.x = mesh->mVertices[i].x;
-		vector.y = mesh->mVertices[i].y;
-		vector.z = mesh->mVertices[i].z;
-		vertex.position = vector;
-		// normals
-		if (mesh->HasNormals())
+		m_NumPositions = channel->mNumPositionKeys;
+
+		for (int positionIndex = 0; positionIndex < m_NumPositions; ++positionIndex)
 		{
-			vector.x = mesh->mNormals[i].x;
-			vector.y = mesh->mNormals[i].y;
-			vector.z = mesh->mNormals[i].z;
-			vertex.normal = vector;
+			aiVector3D aiPosition = channel->mPositionKeys[positionIndex].mValue;
+			float timeStamp = channel->mPositionKeys[positionIndex].mTime;
+			KeyPosition data;
+			data.position = AssimpGLMHelpers::GetGLMVec(aiPosition);
+			data.timeStamp = timeStamp;
+			m_Positions.push_back(data);
 		}
-		vertex.aTexCoords = glm::vec2(0.0f, 0.0f);
 
-		assimp_vertices.push_back(vertex);
+		m_NumRotations = channel->mNumRotationKeys;
+		for (int rotationIndex = 0; rotationIndex < m_NumRotations; ++rotationIndex)
+		{
+			aiQuaternion aiOrientation = channel->mRotationKeys[rotationIndex].mValue;
+			float timeStamp = channel->mRotationKeys[rotationIndex].mTime;
+			KeyRotation data;
+			data.orientation = AssimpGLMHelpers::GetGLMQuat(aiOrientation);
+			data.timeStamp = timeStamp;
+			m_Rotations.push_back(data);
+		}
+
+		m_NumScalings = channel->mNumScalingKeys;
+		for (int keyIndex = 0; keyIndex < m_NumScalings; ++keyIndex)
+		{
+			aiVector3D scale = channel->mScalingKeys[keyIndex].mValue;
+			float timeStamp = channel->mScalingKeys[keyIndex].mTime;
+			KeyScale data;
+			data.scale = AssimpGLMHelpers::GetGLMVec(scale);
+			data.timeStamp = timeStamp;
+			m_Scales.push_back(data);
+		}
 	}
-	std::vector<uint32_t> assimp_indices;
-	// now wak through each of the mesh's faces (a face is a mesh its triangle) and retrieve the corresponding vertex indices.
-	for (unsigned int i = 0; i < mesh->mNumFaces; i++)
+
+	void Update(float animationTime)
 	{
-		aiFace face = mesh->mFaces[i];
-		// retrieve all indices of the face and store them in the indices vector
-		for (unsigned int j = 0; j < face.mNumIndices; j++)
-			assimp_indices.push_back(face.mIndices[j]);
+		glm::mat4 translation = InterpolatePosition(animationTime);
+		glm::mat4 rotation = InterpolateRotation(animationTime);
+		glm::mat4 scale = InterpolateScaling(animationTime);
+		m_LocalTransform = translation * rotation * scale;
+	}
+	glm::mat4 GetLocalTransform() { return m_LocalTransform; }
+	std::string GetBoneName() const { return m_Name; }
+	int GetBoneID() { return m_ID; }
+
+
+
+	int GetPositionIndex(float animationTime)
+	{
+		for (int index = 0; index < m_NumPositions - 1; ++index)
+		{
+			if (animationTime < m_Positions[index + 1].timeStamp)
+				return index;
+		}
+		assert(0);
 	}
 
-	new_mesh->index_count = assimp_indices.size();
-	glGenVertexArrays(1, &new_mesh->vao);
-	glBindVertexArray(new_mesh->vao);
+	int GetRotationIndex(float animationTime)
+	{
+		for (int index = 0; index < m_NumRotations - 1; ++index)
+		{
+			if (animationTime < m_Rotations[index + 1].timeStamp)
+				return index;
+		}
+		assert(0);
+	}
 
-	glGenBuffers(1, &new_mesh->vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, new_mesh->vbo);
-	glBufferData(GL_ARRAY_BUFFER, assimp_vertices.size() * sizeof(AssimpVertex), assimp_vertices.data(), GL_STATIC_DRAW);
+	int GetScaleIndex(float animationTime)
+	{
+		for (int index = 0; index < m_NumScalings - 1; ++index)
+		{
+			if (animationTime < m_Scales[index + 1].timeStamp)
+				return index;
+		}
+		assert(0);
+	}
 
-	glGenBuffers(1, &new_mesh->ebo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, new_mesh->ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, assimp_indices.size() * sizeof(uint32_t), assimp_indices.data(), GL_STATIC_DRAW);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, position));
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, normal));
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, aTexCoords));
-	glEnableVertexAttribArray(2);
-	glBindVertexArray(0);
+private:
 
-	model->meshes.push_back(new_mesh);
+	float GetScaleFactor(float lastTimeStamp, float nextTimeStamp, float animationTime)
+	{
+		float scaleFactor = 0.0f;
+		float midWayLength = animationTime - lastTimeStamp;
+		float framesDiff = nextTimeStamp - lastTimeStamp;
+		scaleFactor = midWayLength / framesDiff;
+		return scaleFactor;
+	}
+
+	glm::mat4 InterpolatePosition(float animationTime)
+	{
+		if (1 == m_NumPositions)
+			return glm::translate(glm::mat4(1.0f), m_Positions[0].position);
+
+		int p0Index = GetPositionIndex(animationTime);
+		int p1Index = p0Index + 1;
+		float scaleFactor = GetScaleFactor(m_Positions[p0Index].timeStamp,
+			m_Positions[p1Index].timeStamp, animationTime);
+		glm::vec3 finalPosition = glm::mix(m_Positions[p0Index].position, m_Positions[p1Index].position
+			, scaleFactor);
+		return glm::translate(glm::mat4(1.0f), finalPosition);
+	}
+
+	glm::mat4 InterpolateRotation(float animationTime)
+	{
+		if (1 == m_NumRotations)
+		{
+			auto rotation = glm::normalize(m_Rotations[0].orientation);
+			//return glm::toMat4(rotation);
+		}
+
+		int p0Index = GetRotationIndex(animationTime);
+		int p1Index = p0Index + 1;
+		float scaleFactor = GetScaleFactor(m_Rotations[p0Index].timeStamp,
+			m_Rotations[p1Index].timeStamp, animationTime);
+		glm::quat finalRotation = glm::slerp(m_Rotations[p0Index].orientation, m_Rotations[p1Index].orientation
+			, scaleFactor);
+		finalRotation = glm::normalize(finalRotation);
+		//return glm::toMat4(finalRotation);
+
+	}
+
+	glm::mat4 InterpolateScaling(float animationTime)
+	{
+		if (1 == m_NumScalings)
+			return glm::scale(glm::mat4(1.0f), m_Scales[0].scale);
+
+		int p0Index = GetScaleIndex(animationTime);
+		int p1Index = p0Index + 1;
+		float scaleFactor = GetScaleFactor(m_Scales[p0Index].timeStamp,
+			m_Scales[p1Index].timeStamp, animationTime);
+		glm::vec3 finalScale = glm::mix(m_Scales[p0Index].scale, m_Scales[p1Index].scale
+			, scaleFactor);
+		return glm::scale(glm::mat4(1.0f), finalScale);
+	}
+
+	std::vector<KeyPosition> m_Positions;
+	std::vector<KeyRotation> m_Rotations;
+	std::vector<KeyScale> m_Scales;
+	int m_NumPositions;
+	int m_NumRotations;
+	int m_NumScalings;
+
+	glm::mat4 m_LocalTransform;
+	std::string m_Name;
+	int m_ID;
+};
+
+#pragma endregion bones_container
+
+#pragma region assimp_animation
+struct AssimpNodeData
+{
+	glm::mat4 transformation;
+	std::string name;
+	int childrenCount;
+	std::vector<AssimpNodeData> children;
+};
+
+class Animation
+{
+public:
+	Animation() = default;
+
+	Animation(const std::string& animationPath)
+	{
+		Assimp::Importer importer;
+		const aiScene* scene = importer.ReadFile(animationPath, aiProcess_Triangulate);
+		assert(scene && scene->mRootNode);
+		auto animation = scene->mAnimations[0];
+		m_Duration = animation->mDuration;
+		m_TicksPerSecond = animation->mTicksPerSecond;
+		m_TicksPerSecond = 1000;
+		ReadHeirarchyData(m_RootNode, scene->mRootNode);
+		//ReadMissingBones(animation);
+		std::cout << "Animation name is: " << scene->mAnimations[0]->mName.C_Str() << std::endl;
+	}
+
+	~Animation()
+	{
+	}
+
+	Bone* FindBone(const std::string& name)
+	{
+		auto iter = std::find_if(m_Bones.begin(), m_Bones.end(),
+			[&](const Bone& Bone)
+			{
+				return Bone.GetBoneName() == name;
+			}
+		);
+		if (iter == m_Bones.end()) return nullptr;
+		else return &(*iter);
+	}
+
+
+	inline float GetTicksPerSecond() { return m_TicksPerSecond; }
+
+	inline float GetDuration() { return m_Duration; }
+
+	inline const AssimpNodeData& GetRootNode() { return m_RootNode; }
+
+	inline const std::map<std::string, AssimpBoneInfo>& GetBoneIDMap()
+	{
+		return m_BoneInfoMap;
+	}
+
+private:
+	void ReadMissingBones(const aiAnimation* animation)
+	{
+		int size = animation->mNumChannels;
+
+		auto& boneInfoMap = m_BoneInfoMap;//getting m_BoneInfoMap from Model class
+		int& boneCount = m_BoneCounter; //getting the m_BoneCounter from Model class
+
+		//reading channels(bones engaged in an animation and their keyframes)
+		for (int i = 0; i < size; i++)
+		{
+			auto channel = animation->mChannels[i];
+			std::string boneName = channel->mNodeName.data;
+
+			if (boneInfoMap.find(boneName) == boneInfoMap.end())
+			{
+				boneInfoMap[boneName].id = boneCount;
+				boneCount++;
+			}
+			m_Bones.push_back(Bone(channel->mNodeName.data,
+				boneInfoMap[channel->mNodeName.data].id, channel));
+		}
+
+		m_BoneInfoMap = m_BoneInfoMap;
+	}
+
+	void ReadHeirarchyData(AssimpNodeData& dest, const aiNode* src)
+	{
+		assert(src);
+
+		dest.name = src->mName.data;
+		dest.transformation = AssimpGLMHelpers::ConvertMatrixToGLMFormat(src->mTransformation);
+		dest.childrenCount = src->mNumChildren;
+
+		for (int i = 0; i < src->mNumChildren; i++)
+		{
+			AssimpNodeData newData;
+			ReadHeirarchyData(newData, src->mChildren[i]);
+			dest.children.push_back(newData);
+		}
+	}
+	float m_Duration;
+	int m_TicksPerSecond;
+	std::vector<Bone> m_Bones;
+	AssimpNodeData m_RootNode;
+	std::map<std::string, AssimpBoneInfo> m_BoneInfoMap;
+};
+#pragma endregion assimp_animation
+
+#pragma region assimp_animator
+class Animator
+{
+public:
+	Animator(Animation* animation)
+	{
+		m_CurrentTime = 0.0;
+		m_CurrentAnimation = animation;
+
+		m_FinalBoneMatrices.reserve(200);
+
+		for (int i = 0; i < 200; i++)
+			m_FinalBoneMatrices.push_back(glm::mat4(1.0f));
+	}
+
+	void UpdateAnimation(float dt)
+	{
+		m_DeltaTime = dt;
+		if (m_CurrentAnimation)
+		{
+			m_CurrentTime += m_CurrentAnimation->GetTicksPerSecond() * dt;
+			m_CurrentTime = fmod(m_CurrentTime, m_CurrentAnimation->GetDuration());
+			CalculateBoneTransform(&m_CurrentAnimation->GetRootNode(), glm::mat4(1.0f));
+		}
+	}
+
+	void PlayAnimation(Animation* pAnimation)
+	{
+		m_CurrentAnimation = pAnimation;
+		m_CurrentTime = 0.0f;
+	}
+
+	void CalculateBoneTransform(const AssimpNodeData* node, glm::mat4 parentTransform)
+	{
+		std::string nodeName = node->name;
+		glm::mat4 nodeTransform = node->transformation;
+
+		Bone* Bone = m_CurrentAnimation->FindBone(nodeName);
+
+		if (Bone)
+		{
+			Bone->Update(m_CurrentTime);
+			nodeTransform = Bone->GetLocalTransform();
+		}
+
+		glm::mat4 globalTransformation = parentTransform * nodeTransform;
+
+		auto boneInfoMap = m_CurrentAnimation->GetBoneIDMap();
+		if (boneInfoMap.find(nodeName) != boneInfoMap.end())
+		{
+			int index = boneInfoMap[nodeName].id;
+			glm::mat4 offset = boneInfoMap[nodeName].offset;
+			m_FinalBoneMatrices[index] = globalTransformation * offset;
+		}
+
+		for (int i = 0; i < node->childrenCount; i++)
+			CalculateBoneTransform(&node->children[i], globalTransformation);
+	}
+
+	std::vector<glm::mat4> GetFinalBoneMatrices()
+	{
+		return m_FinalBoneMatrices;
+	}
+
+private:
+	std::vector<glm::mat4> m_FinalBoneMatrices;
+	Animation* m_CurrentAnimation;
+	float m_CurrentTime;
+	float m_DeltaTime;
+
+};
+#pragma endregion assimp_animator
+
+void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node) {
+	AssimpNode* new_node = new AssimpNode{};
+	new_node->parent = parent;
+	new_node->name = std::string(node->mName.C_Str());
+	new_node->matrix = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
+
+
+	for (int i = 0; i < node->mNumChildren; i++) {
+		processAssimpNode(node->mChildren[i], new_node, scene, scene_graph_node);
+	}
+
+
+	if (node->mNumMeshes > 0) {
+		AssimpMesh* new_mesh = new AssimpMesh{};
+		for (int i = 0; i < node->mNumMeshes; i++) {
+			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+
+			AssimpPrimitive* new_primitive = new AssimpPrimitive{};
+			bool has_skin = mesh->HasBones();
+
+			BoneData* vertex_id_to_bone_id = nullptr;
+			if (has_skin) {
+				vertex_id_to_bone_id = new BoneData[mesh->mNumVertices]{};
+				DEBUG("Processing Bones:\n");
+				for (size_t i = 0; i < mesh->mNumBones; i++) {
+					std::string boneName = mesh->mBones[i]->mName.C_Str();
+					int boneId = -1;
+					if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end()) {
+						AssimpBoneInfo boneInfo;
+						boneInfo.id = m_BoneCounter;
+						boneInfo.offset = AssimpGLMHelpers::ConvertMatrixToGLMFormat(mesh->mBones[i]->mOffsetMatrix);
+						m_BoneInfoMap[boneName] = boneInfo;
+						boneId = m_BoneCounter;
+						m_BoneCounter++;
+					}
+					else {
+						boneId = m_BoneInfoMap[boneName].id;
+						//abort();
+						std::cout << "hola";
+					}
+					assert(boneId != -1);
+					for (size_t j = 0; j < mesh->mBones[i]->mNumWeights; j++) {
+						uint32_t vertex_id = mesh->mBones[i]->mWeights[j].mVertexId;
+						float weight_value = mesh->mBones[i]->mWeights[j].mWeight;
+
+						//assert(vertex_id_to_bone_id[vertex_id].count < MAX_NUM_BONES_PER_VERTEX);
+						if (vertex_id_to_bone_id[vertex_id].count < MAX_NUM_BONES_PER_VERTEX) {
+							vertex_id_to_bone_id[vertex_id].joints[vertex_id_to_bone_id[vertex_id].count] = boneId;
+							vertex_id_to_bone_id[vertex_id].weights[vertex_id_to_bone_id[vertex_id].count] = weight_value;
+							vertex_id_to_bone_id[vertex_id].count++;
+						}
+					}
+				}
+			}
+			// int ha = vertex_id_to_bone_id[35156].count;
+			// todo probar la solucion para bones de learnopengl que es totalmente inintuitiva
+			DEBUG("Processing Mesh: %s", mesh->mName.C_Str());
+
+			DEBUG("Processing Vertices:");
+			DEBUG("\tVertices count: % d", mesh->mNumVertices);
+
+			std::vector<AssimpVertex> assimp_vertices;
+			assimp_vertices.reserve(mesh->mNumVertices);
+			for (unsigned int i = 0; i < mesh->mNumVertices; i++)
+			{
+				AssimpVertex vertex;
+				glm::vec3 vector; // we declare a placeholder vector since assimp uses its own vector class that doesn't directly convert to glm's vec3 class so we transfer the data to this placeholder glm::vec3 first.
+				// positions
+				vector.x = mesh->mVertices[i].x;
+				vector.y = mesh->mVertices[i].y;
+				vector.z = mesh->mVertices[i].z;
+				vertex.position = vector;
+				// normals
+				if (mesh->HasNormals())
+				{
+					vector.x = mesh->mNormals[i].x;
+					vector.y = mesh->mNormals[i].y;
+					vector.z = mesh->mNormals[i].z;
+					vertex.normal = vector;
+				}
+				vertex.aTexCoords = glm::vec2(0.0f, 0.0f);
+				if (has_skin) {
+					//vertex.joints = glm::make_vec4(vertex_id_to_bone_id[i].joints.data());
+					//vertex.weights = glm::make_vec4(vertex_id_to_bone_id[i].weights.data());
+					vertex.joints[0] = vertex_id_to_bone_id[i].joints[0];
+					vertex.joints[1] = vertex_id_to_bone_id[i].joints[1];
+					vertex.joints[2] = vertex_id_to_bone_id[i].joints[2];
+					vertex.joints[3] = vertex_id_to_bone_id[i].joints[3];
+
+					vertex.weights[0] = vertex_id_to_bone_id[i].weights[0];
+					vertex.weights[1] = vertex_id_to_bone_id[i].weights[1];
+					vertex.weights[2] = vertex_id_to_bone_id[i].weights[2];
+					vertex.weights[3] = vertex_id_to_bone_id[i].weights[3];
+				}
+				else {
+					//vertex.joints = glm::vec4(0.0f);
+
+					vertex.joints[0] = 0;
+					vertex.joints[1] = 0;
+					vertex.joints[2] = 0;
+					vertex.joints[3] = 0;
+
+					//vertex.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+					vertex.weights[0] = 0.0f;
+					vertex.weights[1] = 0.0f;
+					vertex.weights[2] = 0.0f;
+					vertex.weights[3] = 0.0f;
+
+				}
+				// this is probably not needed
+
+				assimp_vertices.push_back(vertex);
+			}
+
+			DEBUG("Processing Indices...\n");
+			std::vector<uint32_t> assimp_indices;
+			for (unsigned int i = 0; i < mesh->mNumFaces; i++)
+			{
+				aiFace face = mesh->mFaces[i];
+				for (unsigned int j = 0; j < face.mNumIndices; j++)
+					assimp_indices.push_back(face.mIndices[j]);
+			}
+
+			new_primitive->index_count = assimp_indices.size();
+			DEBUG("There are %d indices\n", new_primitive->index_count);
+
+
+			glGenVertexArrays(1, &new_primitive->vao);
+			glBindVertexArray(new_primitive->vao);
+
+			glGenBuffers(1, &new_primitive->vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, new_primitive->vbo);
+			glBufferData(GL_ARRAY_BUFFER, assimp_vertices.size() * sizeof(AssimpVertex), assimp_vertices.data(), GL_STATIC_DRAW);
+
+			glGenBuffers(1, &new_primitive->ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, new_primitive->ebo);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, assimp_indices.size() * sizeof(uint32_t), assimp_indices.data(), GL_STATIC_DRAW);
+
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, position));
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, normal));
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, aTexCoords));
+			glEnableVertexAttribArray(2);
+
+			if (has_skin) {
+				glVertexAttribIPointer(3, 4, GL_INT, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
+				//glVertexAttribPointer(3, 4, GL_INT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
+				glEnableVertexAttribArray(3);
+				glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, weights));
+				glEnableVertexAttribArray(4);
+
+				//delete[] vertex_id_to_bone_id;
+			}
+			glBindVertexArray(0);
+
+			for (size_t i = 0; i < assimp_vertices.size(); i++) {
+				std::cout << "Vertex: " << i << std::endl;
+				std::cout << "\t joints: [" << assimp_vertices[i].joints[0] << ", " << assimp_vertices[i].joints[1] << ", " << assimp_vertices[i].joints[2] << ", " << assimp_vertices[i].joints[3] << "]";
+				std::cout << "\t weights: [" << assimp_vertices[i].weights[0] << ", " << assimp_vertices[i].weights[1] << ", " << assimp_vertices[i].weights[2] << ", " << assimp_vertices[i].weights[3] << "]";
+			}
+
+			new_mesh->meshes.push_back(new_primitive);
+		}
+		new_node->mesh = new_mesh;
+	}
+	if (parent) {
+		parent->children.push_back(new_node);
+		std::string parent_name = new_node->parent ? new_node->parent->name : std::string("NULL");
+		std::cout << "NODE NAME: " << new_node->name << "  NODE PARENT: " << parent_name << std::endl;
+	}
+	else {
+		scene_graph_node.assimp_nodes.push_back(new_node);
+	}
+	if (new_node->name == "ROOT") {
+		std::cout << "IM ROOT" << std::endl;
+		for (size_t i = 0; i < new_node->children.size(); i++) {
+			std::cout << "CHILDREN " << i << "  CHILDREN NAME: " << new_node->children[i]->name << std::endl;
+
+		}
+	}
 }
 
+void load_assimp_anim(std::string path) {
+	//lass
+	Assimp::Importer import;
+	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
+
+	if (!scene || !scene->mRootNode)
+	{
+		FATAL("ERROR::ASSIMP::%s file%s\n", import.GetErrorString(), scene->GetShortFilename(path.c_str()));
+		abort();
+	}
+	if (!scene->HasAnimations()) {
+		FATAL("Model %s has no animations\n", scene->GetShortFilename(path.c_str()));
+		abort();
+	}
+
+	for (size_t i = 0; i < scene->mNumAnimations; i++) {
+		std::cout << "Animation name: " << scene->mAnimations[i]->mName.C_Str() << std::endl;
+	}
+}
+
+void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regular_shader) {
+	if (node->mesh) {
+		for (const auto& mesh : node->mesh->meshes) {
+			glBindVertexArray(mesh->vao);
+
+			//std::cout << "node name: " << node->name << std::endl;
+
+			skinning_shader->use();
+			glm::quat qx = glm::angleAxis(glm::radians(60.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			glm::quat qy = glm::angleAxis(glm::radians(20.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+			glm::quat qz = glm::angleAxis(glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			glm::quat rot = qz * qy * qx; // Specify order of rotations here
+
+			glm::mat4 base_model_mat =
+				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+				//glm::mat4_cast(rot) *
+				glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+			skinning_shader->setMat4("model", base_model_mat);
+			//skinning_shader->setMat4("model", glm::mat4(1.0f));
+
+			glUseProgram(skinning_shader_id);
+			//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+			//glUniformMatrix4fv(jointMatricesLoc, node->mesh->uniformBlock.jointCount, GL_FALSE, glm::value_ptr(node->mesh->uniformBlock.jointMatrix[0]));
+
+			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+
+			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->mesh->uniformBlock.matrix[0][0]);
+			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->matrix[0][0]);
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+
+			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+			glBindVertexArray(0);
+		}
+	}
+
+	for (auto& child : node->children) {
+		render_assimp_node(child, skinning_shader, regular_shader);
+	}
+}
 
 int main() {
+	SceneGraph scene_graph{};
 	tinygltf::Model model = loadGLTFModel();
-	auto mats = get_inverse_bind_matrix(model);
-	INFO("Amount of mats: %d", mats.size());
-	for (int i = 0; i < mats.size(); i++) {
-		print_matrix(mats[i]);
-	}
 
-	INFO("SCENES");
-	for (int i = 0; i < model.scenes.size(); i++) {
-		INFO("%s ", model.scenes[i].name.c_str());
-	}
-
-	INFO("NODES");
-	for (int i = 0; i < model.nodes.size(); i++) {
-		INFO("%s ", model.nodes[i].name.c_str());
-	}
-	INFO("MESHES");
-	for (int i = 0; i < model.meshes.size(); i++) {
-		INFO("%s ", model.meshes[i].name.c_str());
-
-		for (int j = 0; j < model.meshes[i].primitives.size(); j++) {
-			INFO("INDICES %d: ", model.accessors[model.meshes[i].primitives[j].indices]);
-			INFO("-- ATTRIBUTES: ");
-			for (const auto& [key, value] : model.meshes[i].primitives[j].attributes) {
-				INFO("key: %s   value: %d   model.accessors[value] = %s", key.c_str(), value, model.accessors[value].name.c_str());
-			}
-		}
-	}
-	INFO("SKINS");
-	for (int i = 0; i < model.skins.size(); i++) {
-		INFO("%s ", model.skins[i].name.c_str());
-		for (int j = 0; j < model.skins[i].joints.size(); j++) {
-			INFO("%d  == meshes: %s", model.skins[i].joints[j], model.nodes[model.skins[i].joints[j]].name.c_str());
-		}
-	}
-	INFO("ANIMATIONS");
-	for (int i = 0; i < model.animations.size(); i++) {
-		INFO("%s ", model.animations[i].name.c_str());
-	}
 	/*
-
-A_FP_AssaultRifle_Fire
-Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Loop
-Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Pose
-Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Walk_F_Loop
-Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_Reference
-Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_WEP_AssaultRifle_Reload
-Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
-
+	A_FP_AssaultRifle_Fire
+	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Loop
+	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Pose
+	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Walk_F_Loop
+	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_Reference
+	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_WEP_AssaultRifle_Reload
+	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 	*/
 
 
@@ -1604,7 +2186,7 @@ Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "JDsa", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "aim engine", NULL, NULL);
 	//GLFWwindow* window = glfwCreateWindow(SRC_WIDTH, SRC_HEIGHT, "aim", glfwGetPrimaryMonitor(), NULL);
 
 
@@ -1643,8 +2225,34 @@ Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 		return -1;
 	}
 	INFO("OpenGL initialized successfully!");
-	AssimpModel assault_rifle;
-	loadAssimp(&assault_rifle);
+
+	/*
+	Explicacion:
+	La magazine queda en la posicion del arma pero no tiene nada que ver con los bones. La razon por la cual queda ahi es porque
+	tiene una transformacion y cuando se le aplica funciona. Ya que en este proyecto cuando exporte GLTF deje un offset en la magazine y ademas segun el dibujo que
+	hice en la tablet los calculos que suceden en update() no afectan a esta visualizacion del arma correcta (obvio todo esto sin animaciones)
+
+	Ahora si importo cada archivo por separado con su propio .FBX la magazine queda mal porque el tipo antes de exportar setteo la magazine en 0,0,0 y la dejo offseteada
+	cuando hacia las animaciones.
+
+	Conclusion: Si comento el update(), just para este .blend porque los parents tienen la identidad como transform, la magazine va a quedar bien si cargo el .gltf (porque no esta offseteado)
+	y mal si meto el .fbx (porque se centro en 0,0,0 antes de exportar)
+	Nota: si se comenta el update() hay que pasar node->GetLocalMatrix a "nodeMatrix" ya que no se setteo en el update() y sino es undefined
+	*/
+	INFO("Loading assimp models...\n");
+	AssimpNode assault_rifle, assault_rifle_magazine, assault_rifle_casing;
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/RIG_AssaultRifle.gltf"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle_magazine, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
+	//loadAssimp(&assault_rifle_casing, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx");
+	//load_assimp_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Idle_Pose.fbx");
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae");
+	//Animator animator(&danceAnimation);
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano.glb"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano.glb");
+	//Animator animator(&danceAnimation);
+
 
 
 	size_t vertexCount = 0, indexCount = 0;
@@ -1670,6 +2278,7 @@ Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 	}
 	load_skins(model);
 	for (auto node : linearNodes) {
+		std::cout << "Node name: " << node->name << std::endl;
 		if (node->skinIndex > -1) {
 			node->skin = skins[node->skinIndex];
 		}
@@ -2275,6 +2884,8 @@ Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 				glm::scale(glm::mat4(1.0f), boxes[i].transform.scale);
 			skinning_shader.setMat4("model", model);
 
+			//skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
+
 			glDrawArrays(GL_TRIANGLES, 0, 36);
 		}
 
@@ -2331,38 +2942,129 @@ Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 			Animation name: A_WEP_Reference, index: 6
 		*/
 
+		skinning_shader.use();
+		//skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
+		//glUseProgram(skinning_shader_id);
+		//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 		for (auto& node : nodes) {
 			render_node(node, &skinning_shader, &skel_shader);
 		}
+		//skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
+		//glUseProgram(skinning_shader_id);
+		//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+
+		//animator.UpdateAnimation(deltaTime);
+		//skinning_shader.use();
+		//auto transforms = animator.GetFinalBoneMatrices();
+		//for (int i = 0; i < transforms.size(); ++i)
+		//	skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
+		////skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
+
+		//glUseProgram(skinning_shader_id);
+		//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+		//glUniformMatrix4fv(jointMatricesLoc, transforms.size(), GL_FALSE, glm::value_ptr(transforms[0]));
+		//for (auto& scene : scene_graph.nodes) {
+		//	for (auto& node : scene.assimp_nodes) {
+		//		render_assimp_node(node, &skinning_shader, &skel_shader);
+		//	}
+
+		//}
 
 		// assimp
-		for (auto& mesh : assault_rifle.meshes) {
-			glBindVertexArray(mesh->vao);
+		/*
+		if (assault_rifle.mesh) {
+			for (auto mesh : assault_rifle.mesh->meshes) {
+				glBindVertexArray(mesh->vao);
 
-			skinning_shader.use();
-			glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-			glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-			glm::quat rot = qz * qy * qx; // Specify order of rotations here
+				skinning_shader.use();
+				glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot = qz * qy * qx; // Specify order of rotations here
 
-			glm::mat4 base_model_mat =
-				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -30.0f, 0.0f)) *
-				glm::mat4_cast(rot);
-			//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-			skinning_shader.setMat4("model", base_model_mat);
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -30.0f, 0.0f)) *
+					glm::mat4_cast(rot);
+				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				skinning_shader.setMat4("model", base_model_mat);
+				skinning_shader.setMat4("model", glm::mat4(1.0f));
 
-			glUseProgram(skinning_shader_id);
-			GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-			glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
+				glUseProgram(skinning_shader_id);
+				GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+				glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
 
-			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
-			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
 
-			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
-			glBindVertexArray(0);
+				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+				glBindVertexArray(0);
+
+			}
 
 		}
+
+		if (assault_rifle_magazine.mesh) {
+			for (auto mesh : assault_rifle_magazine.mesh->meshes) {
+				glBindVertexArray(mesh->vao);
+
+				skinning_shader.use();
+				glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot = qz * qy * qx; // Specify order of rotations here
+
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -40.0f, 0.0f)) *
+					glm::mat4_cast(rot);
+				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				//skinning_shader.setMat4("model", base_model_mat);
+				skinning_shader.setMat4("model", finalMagazineTransform);
+
+				glUseProgram(skinning_shader_id);
+				GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+				glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
+
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+
+				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+				glBindVertexArray(0);
+
+			}
+		}
+
+
+		if (assault_rifle_casing.mesh) {
+			for (auto mesh : assault_rifle_casing.mesh->meshes) {
+				glBindVertexArray(mesh->vao);
+
+				skinning_shader.use();
+				glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot = qz * qy * qx; // Specify order of rotations here
+
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, -50.0f, 0.0f)) *
+					glm::mat4_cast(rot);
+				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				skinning_shader.setMat4("model", base_model_mat);
+
+				glUseProgram(skinning_shader_id);
+				GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
+				glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
+
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
+
+				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+				glBindVertexArray(0);
+			}
+		}
+		*/
 		// assimp
 
 
@@ -2537,6 +3239,8 @@ Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
 		ImGui::Begin("Model", nullptr, global_flags);
 		ImGui::Checkbox("Animation mode", &animationActive);
 		ImGui::InputInt("active anim index", &activeAnimationIndex);
+		ImGui::Text("Animation name: %s", animations[activeAnimationIndex].name.c_str());
+		ImGui::Text("Number of animations: %d", animations.size());
 
 		if (ImGui::CollapsingHeader("model transform", ImGuiTreeNodeFlags_DefaultOpen)) {
 			//ImGui::DragFloat3("model pos", glm::value_ptr(floor_pos), 0.1f);
