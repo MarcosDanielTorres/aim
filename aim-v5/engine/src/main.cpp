@@ -93,6 +93,33 @@ struct MeshBox;
 bool r_pressed_in_last_frame = false;
 bool three_pressed_last_frame = false;
 
+#pragma region helpers
+
+namespace AssimpGLMHelpers {
+	static inline glm::mat4 ConvertMatrixToGLMFormat(const aiMatrix4x4& from)
+	{
+		glm::mat4 to;
+		//the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
+		to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
+		to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
+		to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
+		to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
+		return to;
+	}
+
+	static inline glm::vec3 GetGLMVec(const aiVector3D& vec)
+	{
+		return glm::vec3(vec.x, vec.y, vec.z);
+	}
+
+	static inline glm::quat GetGLMQuat(const aiQuaternion& pOrientation)
+	{
+		return glm::quat(pOrientation.w, pOrientation.x, pOrientation.y, pOrientation.z);
+	}
+}
+
+#pragma endregion helpers
+
 
 
 int boneCount = 0;
@@ -1377,6 +1404,8 @@ void getNodeProps(const tinygltf::Node& node, const tinygltf::Model& model, size
 }
 
 
+glm::mat4 m_globalInverseTransform;
+
 void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader) {
 	if (node->mesh) {
 
@@ -1522,36 +1551,12 @@ SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
 	}
 	SceneGraphNode scene_graph_node;
 	scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
+
+	m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
 	processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
 	return scene_graph_node;
 }
 
-#pragma region helpers
-
-namespace AssimpGLMHelpers {
-	static inline glm::mat4 ConvertMatrixToGLMFormat(const aiMatrix4x4& from)
-	{
-		glm::mat4 to;
-		//the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
-		to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
-		to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
-		to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
-		to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
-		return to;
-	}
-
-	static inline glm::vec3 GetGLMVec(const aiVector3D& vec)
-	{
-		return glm::vec3(vec.x, vec.y, vec.z);
-	}
-
-	static inline glm::quat GetGLMQuat(const aiQuaternion& pOrientation)
-	{
-		return glm::quat(pOrientation.w, pOrientation.x, pOrientation.y, pOrientation.z);
-	}
-}
-
-#pragma endregion helpers
 
 #pragma region bones_container
 /* Container for bone data */
@@ -1762,8 +1767,9 @@ public:
 
 		// esto podria apuntar al nodo en la lista de nodes. Esto va a pasar por
 		// RootNode -> Armature -> ...
-		ReadHeirarchyData(m_RootNode, scene->mRootNode); 
+		ReadHeirarchyData(m_RootNode, scene->mRootNode);
 
+		//m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
 		// esto se puede quedar
 		ReadMissingBones(animation);
 
@@ -1863,6 +1869,7 @@ public:
 #pragma endregion assimp_animation
 
 #pragma region assimp_animator
+
 class Animator
 {
 public:
@@ -1898,36 +1905,53 @@ public:
 	{
 		std::string nodeName = node->name;
 		// todo check this throughly
-		glm::mat4 nodeTransform = node->transformation;
+		// it could matter that node->transformation is useful if i have something like this:
+		/*
+			Node
+			  MeshNode
+			  MeshNode
+				Meshnode
+				  Bone
+					Bone1
+					Bone2
+					Bone3
+					  BoneChild1...
+		*/
+
+		glm::mat4 nodeTransform;
+		glm::mat4 globalTransformation;
 
 		Bone* Bone = m_CurrentAnimation->FindBone(nodeName);
 
 		// armature has a transform
-		// me parece que es el que mueve la armature de lugar inicialmente. probar comentando esto si es el nodeName == "Armature" 
-		// entonces identity
-		if (Bone)
-		{
+		// me parece que es el que mueve la armature de lugar inicialmente. probar comentando esto si es el Bone->GetBoneName() == "Armature" 
+		// entonces identity// Si era eso. 
+
+		if (Bone) {
 			Bone->Update(m_CurrentTime);
 			nodeTransform = Bone->GetLocalTransform();
+			globalTransformation = parentTransform * nodeTransform;
+
+			int index = skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap[nodeName].id;
+			glm::mat4 offset = skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap[nodeName].offset;
+			m_FinalBoneMatrices[index] = m_globalInverseTransform * globalTransformation * offset;
+		}
+		else {
+			nodeTransform = node->transformation;
+			globalTransformation = parentTransform * nodeTransform;
 		}
 
 
-		std::cout << "Parent transform: " << std::endl;
-		print_matrix(parentTransform);
-		std::cout << "Node transform: " << std::endl;
-		print_matrix(nodeTransform);
-		glm::mat4 globalTransformation = parentTransform * nodeTransform;
-		std::cout << "Global transformation: " << std::endl;
-		print_matrix(globalTransformation);
+		//std::cout << "Parent transform: " << std::endl;
+		//print_matrix(parentTransform);
+		//std::cout << "Node transform: " << std::endl;
+		//print_matrix(nodeTransform);
+		//std::cout << "Global transformation: " << std::endl;
+		//print_matrix(globalTransformation);
 
 		//auto boneInfoMap = m_CurrentAnimation->GetBoneIDMap(); // it looks like this takes the map as the animation have it, which means its a copy and not a reference
 		// should investigate
-		if (skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap.find(nodeName) != skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap.end())
-		{
-			int index = skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap[nodeName].id;
-			glm::mat4 offset = skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap[nodeName].offset;
-			m_FinalBoneMatrices[index] = globalTransformation * offset;
-		}
+
 
 		for (int i = 0; i < node->childrenCount; i++)
 			CalculateBoneTransform(&node->children[i], globalTransformation);
@@ -2166,12 +2190,20 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			glm::quat rot = qz * qy * qx; // Specify order of rotations here
 
 			glm::mat4 base_model_mat =
-				glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)) *
+				glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 3.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
 				glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
 			//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 			skinning_shader->setMat4("model", base_model_mat);
 			//skinning_shader->setMat4("model", glm::mat4(1.0f));
+
+			if (node->name == "SM_AssaultRifle_Magazine") {
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, 3.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				skinning_shader->setMat4("model", base_model_mat);
+
+			}
 
 			glUseProgram(skinning_shader_id);
 			//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
@@ -2184,9 +2216,8 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
-			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->mesh->uniformBlock.matrix[0][0]);
-			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->matrix[0][0]);
 			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
 
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
 			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
@@ -2298,6 +2329,8 @@ int main() {
 	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Fire.fbx");
 
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 
 
@@ -2997,7 +3030,7 @@ int main() {
 		//glUseProgram(skinning_shader_id);
 		//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 		for (auto& node : nodes) {
-			render_node(node, &skinning_shader, &skel_shader);
+			//render_node(node, &skinning_shader, &skel_shader);
 		}
 		//skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
 		//glUseProgram(skinning_shader_id);
