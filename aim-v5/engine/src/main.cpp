@@ -1246,7 +1246,7 @@ void GLTFNode::update()
 				glm::mat4 jointMat = jointNode->getMatrix() * skin->inverseBindMatrices[i];
 				jointMat = inverseTransform * jointMat;
 				mesh->uniformBlock.jointMatrix[i] = jointMat;
-			//	mesh->uniformBlock.jointMatrix[i] = glm::mat4(1.0f);
+				//	mesh->uniformBlock.jointMatrix[i] = glm::mat4(1.0f);
 			}
 			mesh->uniformBlock.jointCount = static_cast<uint32_t>(numJoints);
 
@@ -1435,8 +1435,8 @@ struct AssimpVertex {
 	glm::vec3 position;
 	glm::vec3 normal;
 	glm::vec2 aTexCoords;
-    uint32_t joints[4];
-    float weights[4];
+	uint32_t joints[4];
+	float weights[4];
 	//glm::uvec4 joints;
 	//glm::vec4 weights;
 };
@@ -1466,39 +1466,39 @@ struct AssimpMesh {
 
 struct AssimpNode {
 	AssimpMesh* mesh;
-	glm::mat4 matrix;
+	glm::mat4 transform;
 	std::string name;
 	AssimpNode* parent;
 	std::vector<AssimpNode*> children;
 	bool skin = false;
 };
 
+struct SkinnedModel {
+	std::string label;
+	AssimpNode* node;
+	uint8_t skeleton_index;
+};
+
 
 struct AssimpBoneInfo {
 	uint32_t id;
 	glm::mat4 offset;
-	//struct GLTFSkin {
-	//	std::string            name;
-	//	GLTFNode* skeletonRoot = nullptr;
-	//	std::vector<glm::mat4> inverseBindMatrices;
-	//	std::vector<GLTFNode*>    joints;
-	//};
-};
-
-struct AssimpSkin {
-	// esto es la armature basicamente o todo el skeleton
-	std::vector<AssimpNode*> joints;
-	std::vector<glm::mat4> offset;
 };
 
 
+struct Skeleton {
+	std::string label;
+	int8_t parent_index{ -1 };
+	AssimpNode* node;
+	std::unordered_map<std::string, AssimpBoneInfo> m_BoneInfoMap;
+	int m_BoneCounter = 0;
+};
 
-std::unordered_map<std::string, AssimpBoneInfo> m_BoneInfoMap;
-int m_BoneCounter = 0;
+std::vector<Skeleton> skeletons;
+
 
 struct SceneGraphNode {
 	std::vector<AssimpNode*> assimp_nodes;
-	std::vector<AssimpSkin*> skins;
 	//std::vector<AssimpAnimation> animations;
 	std::string scene_name;
 
@@ -1506,7 +1506,6 @@ struct SceneGraphNode {
 
 struct SceneGraph {
 	std::vector<SceneGraphNode> nodes;
-	std::unordered_map<std::string, AssimpSkin*> skins;
 };
 
 void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node);
@@ -1736,6 +1735,7 @@ private:
 #pragma endregion bones_container
 
 #pragma region assimp_animation
+
 struct AssimpNodeData
 {
 	glm::mat4 transformation;
@@ -1749,17 +1749,24 @@ class Animation
 public:
 	Animation() = default;
 
-	Animation(const std::string& animationPath)
+	Animation(const std::string& animationPath, int skeleton_index)
 	{
 		Assimp::Importer importer;
+		m_skeleton_index = skeleton_index;
 		const aiScene* scene = importer.ReadFile(animationPath, aiProcess_Triangulate);
 		assert(scene && scene->mRootNode);
 		auto animation = scene->mAnimations[0];
 		m_Duration = animation->mDuration;
 		m_TicksPerSecond = animation->mTicksPerSecond;
 		//m_TicksPerSecond = 1000;
-		ReadHeirarchyData(m_RootNode, scene->mRootNode);
+
+		// esto podria apuntar al nodo en la lista de nodes. Esto va a pasar por
+		// RootNode -> Armature -> ...
+		ReadHeirarchyData(m_RootNode, scene->mRootNode); 
+
+		// esto se puede quedar
 		ReadMissingBones(animation);
+
 		std::cout << "Animation name is: " << scene->mAnimations[0]->mName.C_Str() << std::endl;
 	}
 
@@ -1767,6 +1774,7 @@ public:
 	{
 	}
 
+	// this is my version
 	Bone* FindBone(const std::string& name)
 	{
 		auto iter = std::find_if(m_Bones.begin(), m_Bones.end(),
@@ -1778,6 +1786,18 @@ public:
 		if (iter == m_Bones.end()) return nullptr;
 		else return &(*iter);
 	}
+
+	//Bone* FindBone(const std::string& name)
+	//{
+	//	auto iter = std::find_if(m_Bones.begin(), m_Bones.end(),
+	//		[&](const Bone& Bone)
+	//		{
+	//			return Bone.GetBoneName() == name;
+	//		}
+	//	);
+	//	if (iter == m_Bones.end()) return nullptr;
+	//	else return &(*iter);
+	//}
 
 
 	inline float GetTicksPerSecond() { return m_TicksPerSecond; }
@@ -1795,29 +1815,23 @@ private:
 	void ReadMissingBones(const aiAnimation* animation)
 	{
 		int size = animation->mNumChannels;
-
-		// these are already global
-		//auto& boneInfoMap = m_BoneInfoMap;//getting m_BoneInfoMap from Model class
-		//int& boneCount = m_BoneCounter; //getting the m_BoneCounter from Model class
-
 		//reading channels(bones engaged in an animation and their keyframes)
 		for (int i = 0; i < size; i++)
 		{
 			auto channel = animation->mChannels[i];
 			std::string boneName = channel->mNodeName.data;
 
-			if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())
+			if (skeletons[m_skeleton_index].m_BoneInfoMap.find(boneName) == skeletons[m_skeleton_index].m_BoneInfoMap.end())
 			{
-				m_BoneInfoMap[boneName].id = m_BoneCounter;
-				m_BoneCounter++;
+				skeletons[m_skeleton_index].m_BoneInfoMap[boneName].id = skeletons[m_skeleton_index].m_BoneCounter;
+				skeletons[m_skeleton_index].m_BoneCounter++;
 			}
 			m_Bones.push_back(Bone(channel->mNodeName.data,
-				m_BoneInfoMap[channel->mNodeName.data].id, channel));
+				skeletons[m_skeleton_index].m_BoneInfoMap[channel->mNodeName.data].id, channel));
 		}
-
-		m_BoneInfoMap; // i dont know if this is a copy or a reference
 	}
 
+	// esto lee toda la jerarquia de la animacion, no solo el skeleton
 	void ReadHeirarchyData(AssimpNodeData& dest, const aiNode* src)
 	{
 		assert(src);
@@ -1826,6 +1840,10 @@ private:
 		dest.transformation = AssimpGLMHelpers::ConvertMatrixToGLMFormat(src->mTransformation);
 		dest.childrenCount = src->mNumChildren;
 
+		//if (m_BoneInfoMap.find(dest.name) != m_BoneInfoMap.end()) {
+		//	std::cout << dest.name << std::endl;
+		//	std::cout << m_BoneInfoMap[dest.name].id << std::endl;
+		//}
 		for (int i = 0; i < src->mNumChildren; i++)
 		{
 			AssimpNodeData newData;
@@ -1833,10 +1851,14 @@ private:
 			dest.children.push_back(newData);
 		}
 	}
+
 	float m_Duration;
 	int m_TicksPerSecond;
+	// todo deal with this. Prolly erase it
 	std::vector<Bone> m_Bones;
 	AssimpNodeData m_RootNode;
+public:
+	int m_skeleton_index;
 };
 #pragma endregion assimp_animation
 
@@ -1875,24 +1897,35 @@ public:
 	void CalculateBoneTransform(const AssimpNodeData* node, glm::mat4 parentTransform)
 	{
 		std::string nodeName = node->name;
+		// todo check this throughly
 		glm::mat4 nodeTransform = node->transformation;
 
 		Bone* Bone = m_CurrentAnimation->FindBone(nodeName);
 
+		// armature has a transform
+		// me parece que es el que mueve la armature de lugar inicialmente. probar comentando esto si es el nodeName == "Armature" 
+		// entonces identity
 		if (Bone)
 		{
 			Bone->Update(m_CurrentTime);
 			nodeTransform = Bone->GetLocalTransform();
 		}
 
+
+		std::cout << "Parent transform: " << std::endl;
+		print_matrix(parentTransform);
+		std::cout << "Node transform: " << std::endl;
+		print_matrix(nodeTransform);
 		glm::mat4 globalTransformation = parentTransform * nodeTransform;
+		std::cout << "Global transformation: " << std::endl;
+		print_matrix(globalTransformation);
 
 		//auto boneInfoMap = m_CurrentAnimation->GetBoneIDMap(); // it looks like this takes the map as the animation have it, which means its a copy and not a reference
 		// should investigate
-		if (m_BoneInfoMap.find(nodeName) != m_BoneInfoMap.end())
+		if (skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap.find(nodeName) != skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap.end())
 		{
-			int index = m_BoneInfoMap[nodeName].id;
-			glm::mat4 offset = m_BoneInfoMap[nodeName].offset;
+			int index = skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap[nodeName].id;
+			glm::mat4 offset = skeletons[m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap[nodeName].offset;
 			m_FinalBoneMatrices[index] = globalTransformation * offset;
 		}
 
@@ -1918,39 +1951,43 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 	AssimpNode* new_node = new AssimpNode{};
 	new_node->parent = parent;
 	new_node->name = std::string(node->mName.C_Str());
-	new_node->matrix = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
-
+	new_node->transform = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
 
 	for (int i = 0; i < node->mNumChildren; i++) {
 		processAssimpNode(node->mChildren[i], new_node, scene, scene_graph_node);
 	}
 
+	std::cout << "Node name: " << new_node->name << std::endl;
 
 	if (node->mNumMeshes > 0) {
 		AssimpMesh* new_mesh = new AssimpMesh{};
 		for (int i = 0; i < node->mNumMeshes; i++) {
+			// Si o si tienen que estar los dos meshes.
+			// El problema de esto es que se repite el skeleton por algun motivo. Como puedo saber si el skeleton ya existe?
 			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 
 			AssimpPrimitive* new_primitive = new AssimpPrimitive{};
 			bool has_skin = mesh->HasBones();
 
+			std::cout << "Mesh name: " << std::string(mesh->mName.C_Str()) << std::endl;
 			BoneData* vertex_id_to_bone_id = nullptr;
 			if (has_skin) {
+				Skeleton new_skeleton = Skeleton{};
 				vertex_id_to_bone_id = new BoneData[mesh->mNumVertices]{};
 				DEBUG("Processing Bones:\n");
 				for (size_t i = 0; i < mesh->mNumBones; i++) {
 					std::string boneName = mesh->mBones[i]->mName.C_Str();
 					int boneId = -1;
-					if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end()) {
+					if (new_skeleton.m_BoneInfoMap.find(boneName) == new_skeleton.m_BoneInfoMap.end()) {
 						AssimpBoneInfo boneInfo;
-						boneInfo.id = m_BoneCounter;
+						boneInfo.id = new_skeleton.m_BoneCounter;
 						boneInfo.offset = AssimpGLMHelpers::ConvertMatrixToGLMFormat(mesh->mBones[i]->mOffsetMatrix);
-						m_BoneInfoMap[boneName] = boneInfo;
-						boneId = m_BoneCounter;
-						m_BoneCounter++;
+						new_skeleton.m_BoneInfoMap[boneName] = boneInfo;
+						boneId = new_skeleton.m_BoneCounter;
+						new_skeleton.m_BoneCounter++;
 					}
 					else {
-						boneId = m_BoneInfoMap[boneName].id;
+						boneId = new_skeleton.m_BoneInfoMap[boneName].id;
 						//abort();
 						std::cout << "hola";
 					}
@@ -1959,7 +1996,6 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 						uint32_t vertex_id = mesh->mBones[i]->mWeights[j].mVertexId;
 						float weight_value = mesh->mBones[i]->mWeights[j].mWeight;
 
-						//assert(vertex_id_to_bone_id[vertex_id].count < MAX_NUM_BONES_PER_VERTEX);
 						if (vertex_id_to_bone_id[vertex_id].count < MAX_NUM_BONES_PER_VERTEX) {
 							vertex_id_to_bone_id[vertex_id].joints[vertex_id_to_bone_id[vertex_id].count] = boneId;
 							vertex_id_to_bone_id[vertex_id].weights[vertex_id_to_bone_id[vertex_id].count] = weight_value;
@@ -1967,9 +2003,8 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 						}
 					}
 				}
+				skeletons.push_back(new_skeleton);
 			}
-			// int ha = vertex_id_to_bone_id[35156].count;
-			// todo probar la solucion para bones de learnopengl que es totalmente inintuitiva
 			DEBUG("Processing Mesh: %s", mesh->mName.C_Str());
 
 			DEBUG("Processing Vertices:");
@@ -2134,7 +2169,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
 				glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+			//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 			skinning_shader->setMat4("model", base_model_mat);
 			//skinning_shader->setMat4("model", glm::mat4(1.0f));
 
@@ -2263,7 +2298,7 @@ int main() {
 	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Fire.fbx");
 
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
-	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx");
+	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 
 
 	Animator animator(&danceAnimation);
@@ -2294,7 +2329,6 @@ int main() {
 	}
 	load_skins(model);
 	for (auto node : linearNodes) {
-		std::cout << "Node name: " << node->name << std::endl;
 		if (node->skinIndex > -1) {
 			node->skin = skins[node->skinIndex];
 		}
