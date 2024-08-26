@@ -1431,7 +1431,6 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 }
 
 
-
 struct AssimpVertex {
 	glm::vec3 position;
 	glm::vec3 normal;
@@ -2132,10 +2131,10 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			glm::quat rot = qz * qy * qx; // Specify order of rotations here
 
 			glm::mat4 base_model_mat =
-				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+				glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
-				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+				glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 			skinning_shader->setMat4("model", base_model_mat);
 			//skinning_shader->setMat4("model", glm::mat4(1.0f));
 
@@ -2145,7 +2144,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
 
-			if (node->name == "Vampire" || node->name == "Circle")
+			if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_AssaultRifle" || node->name == "SK_Manny_Arms")
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
@@ -2252,13 +2251,22 @@ int main() {
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle_magazine, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
 	//loadAssimp(&assault_rifle_casing, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx");
 	//load_assimp_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Idle_Pose.fbx");
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae"));
-	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae");
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/dancing_vampire.dae");
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano2.glb"));
 	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano2.glb");
+
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Fire.fbx");
+
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Fire.fbx");
+
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx");
+
+
 	Animator animator(&danceAnimation);
-	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano.glb"));
-	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/gusano.glb");
 	//Animator animator(&danceAnimation);
 
 
