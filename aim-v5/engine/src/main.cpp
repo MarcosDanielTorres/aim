@@ -348,11 +348,15 @@ glm::vec3 light_pos(1.2f, 1.0f, 2.0f);
 glm::vec3 light_dir(-0.2f, -1.0f, -0.3f);
 glm::vec3 light_scale(0.2f);
 
+
 glm::vec3 light_ambient(0.2f, 0.2f, 0.2f);
 glm::vec3 light_diffuse(0.5f, 0.5f, 0.5f); // darken diffuse light a bit
 glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
 
 
+
+// rifle
+glm::vec3 rifle_pos(1.2f, 1.0f, 2.0f);
 
 // model
 glm::vec3 floor_pos(0.0f, 0.0f, -2.2f);
@@ -2193,8 +2197,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 		std::cout << "" << std::endl;
 	}
 	if (node->name == "SKEL_AssaultRifle") {
-		//node->transform = glm::translate(node->transform, glm::vec3(10.0f, 10.0f, 10.0f));
-		armature_transform = node->transform;
+		//node->transform = glm::translate(node->transform, glm::vec3(2.0f, 2.0f, 2.0f));
 		std::cout << "SKEL_AssaultRifle (armature)" << std::endl;
 		print_matrix(node->transform);
 		// esta y la de abajo son iguales y concinden con la de blender
@@ -2202,6 +2205,10 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 	if (node->name == "Armature") {
 		std::cout << "Armature (same as SKEL_AssaultRifle)" << std::endl;
 		print_matrix(node->transform);
+		armature_transform = glm::translate(glm::mat4(1.0f), rifle_pos) * node->transform;
+		std::cout << "TEMPPPPPPP" << std::endl;
+		print_matrix(armature_transform);
+		std::cout << "" << std::endl;
 	}
 	if (node->name == "Magazine") {
 		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
@@ -2270,7 +2277,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 				//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
 				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					glm::translate(glm::mat4(1.0f), rifle_pos) *
 					//glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
 					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
@@ -3127,9 +3134,6 @@ int main() {
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
-				if (node->name == "SK_AssaultRifle") {
-					assault_rifle_transform = node->transform;
-				}
 				render_assimp_node(node, &skinning_shader, &skel_shader);
 			}
 		}
@@ -3467,6 +3471,8 @@ int main() {
 		ImGui::Begin("Camera", nullptr, global_flags);
 
 		ImGui::Checkbox("Wireframe", &wireframe_mode);
+
+		ImGui::DragFloat3("rifle pos", glm::value_ptr(rifle_pos), 0.1f);
 		if (wireframe_mode) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		}
