@@ -49,6 +49,9 @@ JPH_SUPPRESS_WARNINGS
 //#include "jolt_debug_renderer.h"
 
 
+glm::mat4 assault_rifle_transform;
+glm::mat4 lpm_transform;
+glm::mat4 armature_transform;
 #include "better_camera.h"
 #include "learnopengl/shader_m.h"
 #include "Model.h"
@@ -1964,9 +1967,10 @@ public:
 
 private:
 	std::vector<glm::mat4> m_FinalBoneMatrices;
-	Animation* m_CurrentAnimation;
 	float m_CurrentTime;
 	float m_DeltaTime;
+public:
+	Animation* m_CurrentAnimation;
 
 };
 #pragma endregion assimp_animator
@@ -2076,7 +2080,7 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 					vertex.joints[3] = 0;
 
 					//vertex.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-					vertex.weights[0] = 0.0f;
+					vertex.weights[0] = 1.0f;
 					vertex.weights[1] = 0.0f;
 					vertex.weights[2] = 0.0f;
 					vertex.weights[3] = 0.0f;
@@ -2176,7 +2180,49 @@ void load_assimp_anim(std::string path) {
 	}
 }
 
+
+
 void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regular_shader) {
+	// Armature == SKEL_AssaultRifle == SK_AssaultRifle (Mesh)
+	// tengo que ver como es que se updatea el hueso con el mesh. esto funciona en las animaciones si
+	// Si muevo el grip todo se tiene que mover, entonces si aplico... TODO: mover el mesh y el grip lo mismo, el grip moverlo con un glm::translate etc
+	if (node->name == "Grip") {
+		lpm_transform = node->transform;
+		std::cout << "GRIP BONE" << std::endl;
+		print_matrix(node->transform);
+		std::cout << "" << std::endl;
+	}
+	if (node->name == "SKEL_AssaultRifle") {
+		//node->transform = glm::translate(node->transform, glm::vec3(10.0f, 10.0f, 10.0f));
+		armature_transform = node->transform;
+		std::cout << "SKEL_AssaultRifle (armature)" << std::endl;
+		print_matrix(node->transform);
+		// esta y la de abajo son iguales y concinden con la de blender
+	}
+	if (node->name == "Armature") {
+		std::cout << "Armature (same as SKEL_AssaultRifle)" << std::endl;
+		print_matrix(node->transform);
+	}
+	if (node->name == "Magazine") {
+		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
+		std::cout << "MAGAZINE BONE" << std::endl;
+		//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
+		assault_rifle_transform = node->transform;
+		print_matrix(node->transform);
+		std::cout << "" << std::endl;
+	}
+	if (node->name == "Bolt") {
+		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
+		std::cout << "BOLT BONE" << std::endl;
+		print_matrix(node->transform);
+		std::cout << "" << std::endl;
+	}
+	if (node->name == "Trigger") {
+		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
+		std::cout << "TRIGGER BONE" << std::endl;
+		print_matrix(node->transform);
+		std::cout << "" << std::endl;
+	}
 	if (node->mesh) {
 		for (const auto& mesh : node->mesh->meshes) {
 			glBindVertexArray(mesh->vao);
@@ -2190,21 +2236,47 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			glm::quat rot = qz * qy * qx; // Specify order of rotations here
 
 			glm::mat4 base_model_mat =
-				glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 3.0f, 0.0f)) *
+				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
-				glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-			//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 			skinning_shader->setMat4("model", base_model_mat);
+
+
+			// TODO ATTACHEARLO CON EL GRIP NO CON EL TRANSFORM DEL NODO
 			//skinning_shader->setMat4("model", glm::mat4(1.0f));
 
 			if (node->name == "SM_AssaultRifle_Magazine") {
 				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, 3.0f, 0.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				skinning_shader->setMat4("model", base_model_mat);
+					glm::translate(glm::mat4(1.0f), glm::vec3(20.0f, 3.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
+				skinning_shader->setMat4("model", base_model_mat);
+				skinning_shader->setMat4("model", armature_transform * assault_rifle_transform);
 			}
 
+			if (node->name == "SM_AssaultRifle_Casing") {
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 3.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+
+				skinning_shader->setMat4("model", base_model_mat);
+			}
+
+			if (node->name == "SK_AssaultRifle") {
+				std::cout << "SK_AssaultRifle transform (MESH):" << std::endl;
+				print_matrix(node->transform);
+				std::cout << "" << std::endl;
+
+				//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					//glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+
+				skinning_shader->setMat4("model", base_model_mat);
+				//skinning_shader->setMat4("model", lpm_transform);
+			}
 			glUseProgram(skinning_shader_id);
 			//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
 			//glUniformMatrix4fv(jointMatricesLoc, node->mesh->uniformBlock.jointCount, GL_FALSE, glm::value_ptr(node->mesh->uniformBlock.jointMatrix[0]));
@@ -2212,12 +2284,19 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
 
 			if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_AssaultRifle" || node->name == "SK_Manny_Arms")
-				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+				// Si pongo esto en 1 entonces se caga el transform del rifle
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
-			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
-			//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
+			if (node->name == "SK_AssaultRifle") {
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
+			}
+			else {
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+			}
 
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
 			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
@@ -2331,6 +2410,7 @@ int main() {
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx"));
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 
 
@@ -3039,6 +3119,7 @@ int main() {
 
 		if (animationActive)
 			animator.UpdateAnimation(deltaTime);
+
 		skinning_shader.use();
 		auto transforms = animator.GetFinalBoneMatrices();
 		for (int i = 0; i < transforms.size(); ++i)
@@ -3046,6 +3127,9 @@ int main() {
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
+				if (node->name == "SK_AssaultRifle") {
+					assault_rifle_transform = node->transform;
+				}
 				render_assimp_node(node, &skinning_shader, &skel_shader);
 			}
 		}
