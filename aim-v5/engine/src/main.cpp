@@ -356,8 +356,9 @@ glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
 
 
 // rifle
-glm::vec3 rifle_pos(0.0f, 0.0f, 0.0f);
+glm::vec3 rifle_pos(-2.2f, 0.0f, 0.0f);
 glm::vec3 rifle_rot(0.0f, 0.0f, 0.0f);
+float rifle_scale(0.5f);
 
 // model
 glm::vec3 floor_pos(0.0f, 0.0f, -2.2f);
@@ -2184,6 +2185,41 @@ void load_assimp_anim(std::string path) {
 		std::cout << "Animation name: " << scene->mAnimations[i]->mName.C_Str() << std::endl;
 	}
 }
+void render_assimp_node2(AssimpNode* node, Shader* skinning_shader, Shader* regular_shader) {
+	if (node->mesh) {
+		for (const auto& mesh : node->mesh->meshes) {
+			glBindVertexArray(mesh->vao);
+
+			std::cout << "node name: " << node->name << std::endl;
+
+			skinning_shader->use();
+			if (node->name == "SK_Manny_Arms") {
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+				skinning_shader->setMat4("model", base_model_mat);
+
+				glUseProgram(skinning_shader_id);
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
+				if (node->name == "SK_Manny_Arms")
+					glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+				else
+					glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+
+				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				glBindVertexArray(0);
+
+			}
+
+		}
+	}
+
+	for (auto& child : node->children) {
+		render_assimp_node2(child, skinning_shader, regular_shader);
+	}
+}
 
 
 
@@ -2252,18 +2288,16 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			glm::mat4 base_model_mat =
 				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
-			glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+				glm::scale(glm::mat4(1.0f), glm::vec3(0.5f));
 			skinning_shader->setMat4("model", base_model_mat);
 
 
-			// TODO ATTACHEARLO CON EL GRIP NO CON EL TRANSFORM DEL NODO
-			//skinning_shader->setMat4("model", glm::mat4(1.0f));
 
 			if (node->name == "SM_AssaultRifle_Magazine") {
 				glm::mat4 base_model_mat =
 					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-					//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+					glm::scale(glm::mat4(1.0f), glm::vec3(rifle_scale));
+				//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
 				skinning_shader->setMat4("model", base_model_mat);
 				skinning_shader->setMat4("model", armature_transform * base_model_mat);
@@ -2282,12 +2316,18 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				print_matrix(node->transform);
 				std::cout << "" << std::endl;
 
+				glUseProgram(skinning_shader_id);
+				for (int i = 0; i < 200; ++i) {
+					std::string name = std::string("jointMatrices[" + std::to_string(i) + "]");
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, name.c_str()), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+				}
+
 				//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
 				glm::mat4 base_model_mat =
 					glm::translate(glm::mat4(1.0f), rifle_pos) *
 					//glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
 					glm::mat4_cast(rot) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+					glm::scale(glm::mat4(1.0f), glm::vec3(rifle_scale));
 
 				skinning_shader->setMat4("model", base_model_mat);
 				//skinning_shader->setMat4("model", lpm_transform);
@@ -3136,12 +3176,13 @@ int main() {
 			animator.UpdateAnimation(deltaTime);
 
 		skinning_shader.use();
-		auto transforms = animator.GetFinalBoneMatrices();
+
 		// esto tiene que ser por modelo porque todos comparten el mismo shader
 		// si dejo la primer linea rompo lo que tiene jointMatrices pero no esta bajo la animacion
+		auto transforms = animator.GetFinalBoneMatrices();
 		for (int i = 0; i < transforms.size(); ++i)
-			//skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
-			skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", glm::mat4(1.0f));
+			skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
+
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
@@ -3485,6 +3526,7 @@ int main() {
 
 		ImGui::DragFloat3("rifle pos", glm::value_ptr(rifle_pos), 0.1f);
 		ImGui::DragFloat3("rifle rot", glm::value_ptr(rifle_rot), 0.1f);
+		ImGui::DragFloat("rifle scale", &rifle_scale, 0.1f);
 		if (wireframe_mode) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		}
