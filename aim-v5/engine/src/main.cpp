@@ -49,7 +49,7 @@ JPH_SUPPRESS_WARNINGS
 //#include "jolt_debug_renderer.h"
 
 
-glm::mat4 assault_rifle_transform;
+glm::mat4 mag_rifle_transform;
 glm::mat4 lpm_transform;
 glm::mat4 armature_transform;
 #include "better_camera.h"
@@ -101,7 +101,7 @@ bool three_pressed_last_frame = false;
 namespace AssimpGLMHelpers {
 	static inline glm::mat4 ConvertMatrixToGLMFormat(const aiMatrix4x4& from)
 	{
-		glm::mat4 to;
+		glm::mat4 to{};
 		//the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
 		to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
 		to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
@@ -356,7 +356,8 @@ glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
 
 
 // rifle
-glm::vec3 rifle_pos(1.2f, 1.0f, 2.0f);
+glm::vec3 rifle_pos(0.0f, 0.0f, 0.0f);
+glm::vec3 rifle_rot(0.0f, 0.0f, 0.0f);
 
 // model
 glm::vec3 floor_pos(0.0f, 0.0f, -2.2f);
@@ -2205,7 +2206,13 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 	if (node->name == "Armature") {
 		std::cout << "Armature (same as SKEL_AssaultRifle)" << std::endl;
 		print_matrix(node->transform);
-		armature_transform = glm::translate(glm::mat4(1.0f), rifle_pos) * node->transform;
+
+		glm::quat qx = glm::angleAxis(glm::radians(rifle_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
+		glm::quat qy = glm::angleAxis(glm::radians(rifle_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::quat qz = glm::angleAxis(glm::radians(rifle_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::quat rot = qz * qy * qx; // Specify order of rotations here
+
+		armature_transform = glm::translate(glm::mat4(1.0f), rifle_pos) * glm::mat4_cast(rot) * node->transform;
 		std::cout << "TEMPPPPPPP" << std::endl;
 		print_matrix(armature_transform);
 		std::cout << "" << std::endl;
@@ -2214,7 +2221,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
 		std::cout << "MAGAZINE BONE" << std::endl;
 		//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
-		assault_rifle_transform = node->transform;
+		mag_rifle_transform = node->transform;
 		print_matrix(node->transform);
 		std::cout << "" << std::endl;
 	}
@@ -2237,16 +2244,15 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			std::cout << "node name: " << node->name << std::endl;
 
 			skinning_shader->use();
-			glm::quat qx = glm::angleAxis(glm::radians(60.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::quat qy = glm::angleAxis(glm::radians(20.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-			glm::quat qz = glm::angleAxis(glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			glm::quat qx = glm::angleAxis(glm::radians(rifle_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
+			glm::quat qy = glm::angleAxis(glm::radians(rifle_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
+			glm::quat qz = glm::angleAxis(glm::radians(rifle_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
 			glm::quat rot = qz * qy * qx; // Specify order of rotations here
 
 			glm::mat4 base_model_mat =
 				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
 				//glm::mat4_cast(rot) *
-				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+			glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 			skinning_shader->setMat4("model", base_model_mat);
 
 
@@ -2255,17 +2261,18 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 			if (node->name == "SM_AssaultRifle_Magazine") {
 				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(20.0f, 3.0f, 0.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+					//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 
 				skinning_shader->setMat4("model", base_model_mat);
-				skinning_shader->setMat4("model", armature_transform * assault_rifle_transform);
+				skinning_shader->setMat4("model", armature_transform * base_model_mat);
 			}
 
 			if (node->name == "SM_AssaultRifle_Casing") {
 				glm::mat4 base_model_mat =
 					glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 3.0f, 0.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
 
 				skinning_shader->setMat4("model", base_model_mat);
 			}
@@ -2279,7 +2286,8 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				glm::mat4 base_model_mat =
 					glm::translate(glm::mat4(1.0f), rifle_pos) *
 					//glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
+					glm::mat4_cast(rot) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
 
 				skinning_shader->setMat4("model", base_model_mat);
 				//skinning_shader->setMat4("model", lpm_transform);
@@ -2291,18 +2299,18 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
 
 			if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_AssaultRifle" || node->name == "SK_Manny_Arms")
-				// Si pongo esto en 1 entonces se caga el transform del rifle
-				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
 			if (node->name == "SK_AssaultRifle") {
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
 				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
 			}
 			else {
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
+				if (node->name == "SM_AssaultRifle_Magazine")
+					// esto es asi porque el transform es igual al del hueso.
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &mag_rifle_transform[0][0]);
 			}
 
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
@@ -3129,8 +3137,11 @@ int main() {
 
 		skinning_shader.use();
 		auto transforms = animator.GetFinalBoneMatrices();
+		// esto tiene que ser por modelo porque todos comparten el mismo shader
+		// si dejo la primer linea rompo lo que tiene jointMatrices pero no esta bajo la animacion
 		for (int i = 0; i < transforms.size(); ++i)
-			skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
+			//skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", transforms[i]);
+			skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", glm::mat4(1.0f));
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
@@ -3473,6 +3484,7 @@ int main() {
 		ImGui::Checkbox("Wireframe", &wireframe_mode);
 
 		ImGui::DragFloat3("rifle pos", glm::value_ptr(rifle_pos), 0.1f);
+		ImGui::DragFloat3("rifle rot", glm::value_ptr(rifle_rot), 0.1f);
 		if (wireframe_mode) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		}
