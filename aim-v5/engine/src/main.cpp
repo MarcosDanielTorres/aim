@@ -2359,10 +2359,10 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				skinning_shader->setMat4("model", todas_las_putas_transforms);
 				skinning_shader->setMat4("model", glm::mat4(1.0f));
 
-				for (int i = 0; i < mag_transforms.size(); ++i)
-				{
-					skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", mag_transforms[i]);
-				}
+				//for (int i = 0; i < mag_transforms.size(); ++i)
+				//{
+				//	skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", mag_transforms[i]);
+				//}
 
 			}
 
@@ -2380,10 +2380,6 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				std::cout << "" << std::endl;
 
 				glUseProgram(skinning_shader_id);
-				for (int i = 0; i < 200; ++i) {
-					std::string name = std::string("jointMatrices[" + std::to_string(i) + "]");
-					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, name.c_str()), 1, GL_FALSE, &glm::mat4(1.0f)[0][0]);
-				}
 
 				//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
 				glm::mat4 base_model_mat =
@@ -2405,7 +2401,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
 
-			if (node->name == "Vampire" || node->name == "Circle"  || node->name == "SK_Manny_Arms" || node->name == "Magazine")
+			if (node->name == "Vampire" || node->name == "Circle"  || node->name == "SK_Manny_Arms")
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
@@ -2467,6 +2463,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 					//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &( assault_rifle_transform * skel_assault_rifle_transform * grip_transform * mag_transform)[0][0]);
 
 					// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
+					// el grip no es necesario porque justo es la identity
 					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
 			}
 
