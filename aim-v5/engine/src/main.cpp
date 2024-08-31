@@ -57,8 +57,10 @@ glm::mat4 mag_transform;
 glm::mat4 grip_transform;
 glm::mat4 armature_transform;
 glm::mat4 manny_armature;
+glm::mat4 mag_bone_transform;
 glm::mat4 ik_something;
 std::vector<glm::mat4> manny_transforms;
+std::vector<glm::mat4> mag_transforms;
 glm::mat4 manny_world_transform{};
 #include "better_camera.h"
 #include "learnopengl/shader_m.h"
@@ -2256,6 +2258,9 @@ void render_assimp_node2(AssimpNode* node, Shader* skinning_shader, Shader* regu
 
 
 void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regular_shader) {
+	// IMPORTANT los huesos que se cargan en las animaciones no estan en el scene graph. eso es importante
+
+
 	// Armature == SKEL_AssaultRifle == SK_AssaultRifle (Mesh)
 	// tengo que ver como es que se updatea el hueso con el mesh. esto funciona en las animaciones si
 	// Si muevo el grip todo se tiene que mover, entonces si aplico... TODO: mover el mesh y el grip lo mismo, el grip moverlo con un glm::translate etc
@@ -2284,7 +2289,6 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 		// esto esta mal, armature es del manny, no tiene nada que ver con esto
 		// TODO ver esto porque deberia haber 2 armatures nodes, uno en el fbx del rifle y otro en el del manny. wtf?
 		// IMPORTANT el node Armature solo esta en manny jajaja
-		armature_count++;
 
 		glm::quat qx = glm::angleAxis(glm::radians(rifle_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
 		glm::quat qy = glm::angleAxis(glm::radians(rifle_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -2293,6 +2297,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 		armature_transform = glm::translate(glm::mat4(1.0f), rifle_pos) * glm::mat4_cast(rot) * node->transform;
 		std::cout << "TEMPPPPPPP" << std::endl;
+		armature_count++;
 		print_matrix(armature_transform);
 		std::cout << "" << std::endl;
 	}
@@ -2354,6 +2359,11 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				skinning_shader->setMat4("model", todas_las_putas_transforms);
 				skinning_shader->setMat4("model", glm::mat4(1.0f));
 
+				for (int i = 0; i < mag_transforms.size(); ++i)
+				{
+					skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", mag_transforms[i]);
+				}
+
 			}
 
 			if (node->name == "SM_AssaultRifle_Casing") {
@@ -2395,7 +2405,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
 
-			if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_AssaultRifle" || node->name == "SK_Manny_Arms")
+			if (node->name == "Vampire" || node->name == "Circle"  || node->name == "SK_Manny_Arms" || node->name == "Magazine")
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
@@ -2441,7 +2451,10 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				// no son iguales pero coincide su traslacion
 				//assert(manny_world_transform * (glm::inverse(skel_assault_rifle_transform * grip_transform) * todas_las_putas_transforms * grip.offset) == todas_las_putas_transforms);
 
+				// TODO ahora yo estoy modificando el transform del nodo SK_AssaultRifle pero lo que deberia modificar es el root bone si es que es skinned. En este caso
+				// el grip bone. Esto necesita mas planning.  Unreal engine parece que lo mappea asi no mas, no al grip pero al nodo. aunque seguro se pueda las dos
 				assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
+				//grip_transform = assault_rifle_transform;
 				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
 
 				//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &grip_transform[0][0]);
@@ -2454,7 +2467,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 					//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &( assault_rifle_transform * skel_assault_rifle_transform * grip_transform * mag_transform)[0][0]);
 
 					// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
-					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_transform)[0][0]);
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
 			}
 
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
@@ -2572,9 +2585,11 @@ int main() {
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx"));
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
+	Animation mag_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Reload.fbx", 2);
 
 
 	Animator animator(&danceAnimation);
+	Animator mag_animator(&mag_anim);
 	//Animator animator(&danceAnimation);
 
 
@@ -3278,7 +3293,8 @@ int main() {
 
 		if (animationActive) {
 			animator.UpdateAnimation(deltaTime);
-			std::cout << "BONE NAMES: " << std::endl;
+			mag_animator.UpdateAnimation(deltaTime);
+			std::cout << "MANNY ANIM BONE NAMES: " << std::endl;
 			for (auto& bone : animator.m_CurrentAnimation->m_Bones) {
 				std::cout << bone.GetBoneName() << std::endl;
 				if (bone.GetBoneName() == "Armature") {
@@ -3294,6 +3310,27 @@ int main() {
 				if (bone.GetBoneName() == "ik_hand_gun") {
 					ik_hand_gun_bone = &bone;
 				}
+			}
+			std::cout << "END BONE NAMES: \n" << std::endl;
+			std::cout << "MAG ANIM BONE NAMES: " << std::endl;
+			for (auto& bone : mag_animator.m_CurrentAnimation->m_Bones) {
+				std::cout << bone.GetBoneName() << std::endl;
+				if (bone.GetBoneName() == "Grip") {
+					print_matrix(bone.GetLocalTransform());
+				}
+				if (bone.GetBoneName() == "Magazine") {
+					mag_bone_transform = bone.GetLocalTransform();
+					print_matrix(mag_bone_transform);
+				}
+				//if (bone.GetBoneName() == "root") {
+				//	root = &bone;
+				//}
+				//if (bone.GetBoneName() == "ik_hand_root") {
+				//	ik_hand_root = &bone;
+				//}
+				//if (bone.GetBoneName() == "ik_hand_gun") {
+				//	ik_hand_gun_bone = &bone;
+				//}
 			}
 			std::cout << "END BONE NAMES: " << std::endl;
 		}
@@ -3330,6 +3367,7 @@ int main() {
 		// si dejo la primer linea rompo lo que tiene jointMatrices pero no esta bajo la animacion
 		manny_transforms = animator.GetFinalBoneMatrices();
 
+		mag_transforms = mag_animator.GetFinalBoneMatrices();
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
