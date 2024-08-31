@@ -49,9 +49,11 @@ JPH_SUPPRESS_WARNINGS
 #include "PhysicsSystem.h"
 //#include "jolt_debug_renderer.h"
 
+glm::mat4 assault_rifle_transform{};
 
-glm::mat4 mag_rifle_transform;
+glm::mat4 all_mag_transforms;
 glm::mat4 skel_assault_rifle_transform;
+glm::mat4 mag_transform;
 glm::mat4 grip_transform;
 glm::mat4 armature_transform;
 glm::mat4 manny_armature;
@@ -365,6 +367,11 @@ glm::vec3 light_specular(1.0f, 1.0f, 1.0f);
 glm::vec3 rifle_pos(-2.2f, 0.0f, 0.0f);
 glm::vec3 rifle_rot(0.0f, 0.0f, 0.0f);
 float rifle_scale(0.5f);
+
+// manny
+glm::vec3 manny_pos(-2.2f, 0.0f, 0.0f);
+glm::vec3 manny_rot(0.0f, 0.0f, 0.0f);
+float manny_scale(0.5f);
 
 // model
 glm::vec3 floor_pos(0.0f, 0.0f, -2.2f);
@@ -2274,6 +2281,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 	if (node->name == "Armature") {
 		std::cout << "Armature (same as SKEL_AssaultRifle)" << std::endl;
 		print_matrix(node->transform);
+		// esto esta mal, armature es del manny, no tiene nada que ver con esto
 		// TODO ver esto porque deberia haber 2 armatures nodes, uno en el fbx del rifle y otro en el del manny. wtf?
 		// IMPORTANT el node Armature solo esta en manny jajaja
 		armature_count++;
@@ -2292,7 +2300,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
 		std::cout << "MAGAZINE BONE" << std::endl;
 		//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
-		mag_rifle_transform = node->transform;
+		mag_transform = node->transform;
 		print_matrix(node->transform);
 		std::cout << "" << std::endl;
 	}
@@ -2344,6 +2352,8 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				skinning_shader->setMat4("model", base_model_mat);
 				skinning_shader->setMat4("model", armature_transform * base_model_mat);
 				skinning_shader->setMat4("model", todas_las_putas_transforms);
+				skinning_shader->setMat4("model", glm::mat4(1.0f));
+
 			}
 
 			if (node->name == "SM_AssaultRifle_Casing") {
@@ -2396,8 +2406,9 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 				glm::quat rot = qy * qx * qz; // Specify order of rotations here
 
-				skinning_shader->setMat4("model", glm::mat4_cast(rot));
-				manny_world_transform = glm::mat4_cast(rot) * node->transform;
+				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos) * glm::mat4_cast(rot) * glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+				skinning_shader->setMat4("model", model);
+				manny_world_transform = model * node->transform;
 				for (int i = 0; i < manny_transforms.size(); ++i)
 				{
 					skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", manny_transforms[i]);
@@ -2430,14 +2441,20 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				// no son iguales pero coincide su traslacion
 				//assert(manny_world_transform * (glm::inverse(skel_assault_rifle_transform * grip_transform) * todas_las_putas_transforms * grip.offset) == todas_las_putas_transforms);
 
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(manny_world_transform * todas_las_putas_transforms)[0][0]);
+				assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
 
 				//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &grip_transform[0][0]);
 			}
 			else {
 				if (node->name == "SM_AssaultRifle_Magazine")
 					// esto es asi porque el transform es igual al del hueso.
-					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &mag_rifle_transform[0][0]);
+					//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(manny_world_transform * mag_rifle_transform)[0][0]);
+
+					//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &( assault_rifle_transform * skel_assault_rifle_transform * grip_transform * mag_transform)[0][0]);
+
+					// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_transform)[0][0]);
 			}
 
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
@@ -3111,7 +3128,7 @@ int main() {
 
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-		}
+	}
 #endif
 
 #if 1
@@ -3660,6 +3677,10 @@ int main() {
 		ImGui::DragFloat3("rifle pos", glm::value_ptr(rifle_pos), 0.1f);
 		ImGui::DragFloat3("rifle rot", glm::value_ptr(rifle_rot), 0.1f);
 		ImGui::DragFloat("rifle scale", &rifle_scale, 0.1f);
+
+		ImGui::DragFloat3("manny pos", glm::value_ptr(manny_pos), 0.1f);
+		ImGui::DragFloat3("manny rot", glm::value_ptr(manny_rot), 0.1f);
+		ImGui::DragFloat("manny scale", &manny_scale, 0.1f);
 		if (wireframe_mode) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		}
@@ -3715,7 +3736,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-	}
+}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
