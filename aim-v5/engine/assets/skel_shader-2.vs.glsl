@@ -16,7 +16,7 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-uniform mat4 jointMatrices[320]; // Adjust the size as needed
+uniform mat4 jointMatrices[250]; // Adjust the size as needed
 uniform int jointCount; // si le dejo uint y el jointcount es uint32_t no anda. Si dejo int y el jointcount sigue siendo uint32_t anda.
 uniform mat4 nodeMatrix;
 
