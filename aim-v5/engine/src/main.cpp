@@ -16,7 +16,6 @@
 // este SI anda
 #include "core/logger/logger.h"
 
-int armature_count = 0;
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -37,6 +36,10 @@ int armature_count = 0;
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+
 #include <thread>
 #include <cstdarg>
 
@@ -44,7 +47,7 @@ int armature_count = 0;
 #define MAX_NUM_JOINTS 320u
 #define MAX_NUM_BONES_PER_VERTEX 4
 
-void print_matrix(const glm::mat4& mat);
+//void print_matrix(const glm::mat4& mat);
 JPH_SUPPRESS_WARNINGS
 #include "PhysicsSystem.h"
 //#include "jolt_debug_renderer.h"
@@ -76,6 +79,7 @@ glm::mat4 manny_world_transform{};
 // check this
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
@@ -133,6 +137,58 @@ namespace AssimpGLMHelpers {
 
 #pragma endregion helpers
 
+#pragma region i_inputs
+
+enum keys {
+	num_1 = 49,
+	arrow_right = 262,
+	arrow_left = 263,
+	arrow_down = 264,
+	arrow_up = 265,
+	space = 32,
+	// 263 left
+	// 264 down
+	// 262 right
+	// 263 left
+	// 264 down
+	// 265 up
+};
+
+struct keyboard_state {
+	bool keys[256];
+};
+
+struct InputState {
+	keyboard_state curr_state;
+	keyboard_state prev_state;
+
+	void process_key(keys key, bool pressed) {
+		if (this->curr_state.keys[key] != pressed) {
+			this->curr_state.keys[key] = pressed;
+		}
+	}
+
+	bool is_key_pressed(keys key) {
+		return this->curr_state.keys[key] == true;
+	}
+
+	// one-shot
+	bool is_key_just_pressed(keys key) {
+		return this->curr_state.keys[key] && !this->prev_state.keys[key];
+	}
+
+	bool is_key_released(keys key) {
+		return this->curr_state.keys[key] == false;
+	}
+
+	void update() {
+		this->prev_state = this->curr_state;
+	}
+};
+
+InputState* input_state = nullptr;
+
+#pragma endregion i_inputs
 
 
 int boneCount = 0;
@@ -497,7 +553,7 @@ void update_physics(float delta_time) {
 		// check collision
 		if (model_bounding_box.y >= fps_camera.position.y) {
 			fps_camera.position.y = model_bounding_box.y;
-			std::cout << "Colission detected at: " << model_bounding_box.y << std::endl;
+			//std::cout << "Colission detected at: " << model_bounding_box.y << std::endl;
 		}
 		else {
 			fps_camera.position.y -= gravity * delta_time;
@@ -1227,7 +1283,7 @@ void load_animations(tinygltf::Model& input)
 					break;
 				}
 				default: {
-					std::cout << "unknown type" << std::endl;
+					//std::cout << "unknown type" << std::endl;
 					break;
 				}
 				}
@@ -2264,106 +2320,18 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 	// Armature == SKEL_AssaultRifle == SK_AssaultRifle (Mesh)
 	// tengo que ver como es que se updatea el hueso con el mesh. esto funciona en las animaciones si
 	// Si muevo el grip todo se tiene que mover, entonces si aplico... TODO: mover el mesh y el grip lo mismo, el grip moverlo con un glm::translate etc
-	if (node->name == "Grip") {
-		grip_transform = node->transform;
-		std::cout << "GRIP BONE" << std::endl;
-		print_matrix(node->transform);
-		std::cout << "" << std::endl;
-	}
-	if (node->name == "SKEL_AssaultRifle") {
-		skel_assault_rifle_transform = node->transform;
-		//(esto deberia ser como Armature en manny pero no esta testeado, o sea que deberia ser un hueso)
-		std::cout << "SKEL_AssaultRifle BONE " << std::endl;
-		print_matrix(node->transform);
-		std::cout << "" << std::endl;
-	}
-	if (node->name == "SKEL_AssaultRifle") {
-		//node->transform = glm::translate(node->transform, glm::vec3(2.0f, 2.0f, 2.0f));
-		std::cout << "SKEL_AssaultRifle (armature)" << std::endl;
-		print_matrix(node->transform);
-		// esta y la de abajo son iguales y concinden con la de blender
-	}
-	if (node->name == "Armature") {
-		std::cout << "Armature (same as SKEL_AssaultRifle)" << std::endl;
-		print_matrix(node->transform);
-		// esto esta mal, armature es del manny, no tiene nada que ver con esto
-		// TODO ver esto porque deberia haber 2 armatures nodes, uno en el fbx del rifle y otro en el del manny. wtf?
-		// IMPORTANT el node Armature solo esta en manny jajaja
-
-		glm::quat qx = glm::angleAxis(glm::radians(rifle_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
-		glm::quat qy = glm::angleAxis(glm::radians(rifle_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
-		glm::quat qz = glm::angleAxis(glm::radians(rifle_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
-		glm::quat rot = qz * qy * qx; // Specify order of rotations here
-
-		armature_transform = glm::translate(glm::mat4(1.0f), rifle_pos) * glm::mat4_cast(rot) * node->transform;
-		std::cout << "TEMPPPPPPP" << std::endl;
-		armature_count++;
-		print_matrix(armature_transform);
-		std::cout << "" << std::endl;
-	}
-	if (node->name == "Magazine") {
-		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
-		std::cout << "MAGAZINE BONE" << std::endl;
-		//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
-		mag_transform = node->transform;
-		print_matrix(node->transform);
-		std::cout << "" << std::endl;
-	}
-	if (node->name == "Bolt") {
-		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
-		std::cout << "BOLT BONE" << std::endl;
-		print_matrix(node->transform);
-		std::cout << "" << std::endl;
-	}
-	if (node->name == "Trigger") {
-		// esto nunca llega, tnego que poder tener un mapa de huesos por ahi
-		std::cout << "TRIGGER BONE" << std::endl;
-		print_matrix(node->transform);
-		std::cout << "" << std::endl;
-	}
-	if (node->name == "ik_hand_gun") {
-		std::cout << "IK_HAND_GUN BONE" << std::endl;
-		print_matrix(node->transform);
-		std::cout << "" << std::endl;
-	}
-
 	if (node->mesh) {
 		for (const auto& mesh : node->mesh->meshes) {
 			glBindVertexArray(mesh->vao);
 
-			std::cout << "node name: " << node->name << std::endl;
-
 			skinning_shader->use();
-			glm::quat qx = glm::angleAxis(glm::radians(rifle_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
-			glm::quat qy = glm::angleAxis(glm::radians(rifle_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
-			glm::quat qz = glm::angleAxis(glm::radians(rifle_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
-			glm::quat rot = qz * qy * qx; // Specify order of rotations here
-
-			glm::mat4 base_model_mat =
-				glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
-				//glm::mat4_cast(rot) *
-				glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
-			skinning_shader->setMat4("model", base_model_mat);
 			skinning_shader->setMat4("model", glm::mat4(1.0f));
 
 
+			std::cout << "My node name: " << node->name << std::endl;
 
 			if (node->name == "SM_AssaultRifle_Magazine") {
-				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(rifle_scale));
-				//glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
-
-				skinning_shader->setMat4("model", base_model_mat);
-				skinning_shader->setMat4("model", armature_transform * base_model_mat);
-				skinning_shader->setMat4("model", todas_las_putas_transforms);
 				skinning_shader->setMat4("model", glm::mat4(1.0f));
-
-				//for (int i = 0; i < mag_transforms.size(); ++i)
-				//{
-				//	skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", mag_transforms[i]);
-				//}
-
 			}
 
 			if (node->name == "SM_AssaultRifle_Casing") {
@@ -2375,33 +2343,12 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			}
 
 			if (node->name == "SK_AssaultRifle") {
-				std::cout << "SK_AssaultRifle transform (MESH):" << std::endl;
-				print_matrix(node->transform);
-				std::cout << "" << std::endl;
-
 				glUseProgram(skinning_shader_id);
-
-				//node->transform = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f));
-				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), rifle_pos) *
-					//glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 10.0f, 10.0f)) *
-					glm::mat4_cast(rot) *
-					glm::scale(glm::mat4(1.0f), glm::vec3(rifle_scale));
-
-				skinning_shader->setMat4("model", base_model_mat);
 				skinning_shader->setMat4("model", glm::mat4(1.0f));
-
-				//glm::mat4 new_mat = ik_hand_gun_bone->GetLocalTransform();
-
-				//skinning_shader->setMat4("model", new_mat);
 			}
 			glUseProgram(skinning_shader_id);
-			//GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-			//glUniformMatrix4fv(jointMatricesLoc, node->mesh->uniformBlock.jointCount, GL_FALSE, glm::value_ptr(node->mesh->uniformBlock.jointMatrix[0]));
 
-			//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), node->mesh->uniformBlock.jointCount);
-
-			if (node->name == "Vampire" || node->name == "Circle"  || node->name == "SK_Manny_Arms")
+			if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_Manny_Arms")
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
 			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
@@ -2412,7 +2359,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 				glm::quat rot = qy * qx * qz; // Specify order of rotations here
 
-				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos) * glm::mat4_cast(rot) * glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos) *  glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
 				skinning_shader->setMat4("model", model);
 				manny_world_transform = model * node->transform;
 				for (int i = 0; i < manny_transforms.size(); ++i)
@@ -2423,45 +2370,16 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
 			if (node->name == "SK_AssaultRifle") {
-				//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
 
-				//todo sacar la trans the `ik_hand_gun_bone->GetLocalTransform()` y ver que tan lejos esta la gun de la mano
-				// ver esto porque el manny esta al reves, capaz es esa la cagada, tienen distintas coordenadas
-				glm::mat4 jaja = ik_hand_gun_bone->GetLocalTransform();
-				jaja[3][1] *= -1.0;    // Negate the Y component
-				jaja[3][2] *= -1.0;
-				//glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 1.0f, -.0f)) * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f));
-				//jaja = rotationMatrix * jaja;
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &jaja[0][0]);
-				//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &ik_something[0][0]);
-
-
-				print_matrix(glm::inverse(skel_assault_rifle_transform * grip_transform) * todas_las_putas_transforms);
 				AssimpBoneInfo grip = skeletons[2].m_BoneInfoMap["Grip"];
-				print_matrix(grip.offset);
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(glm::inverse(skel_assault_rifle_transform * grip_transform) * todas_las_putas_transforms * grip.offset)[0][0]);
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &todas_las_putas_transforms[0][0]);
-				print_matrix(manny_world_transform);
-				print_matrix(manny_world_transform * todas_las_putas_transforms);
-				print_matrix(manny_world_transform * (glm::inverse(skel_assault_rifle_transform * grip_transform) * todas_las_putas_transforms * grip.offset));
-				// no son iguales pero coincide su traslacion
-				//assert(manny_world_transform * (glm::inverse(skel_assault_rifle_transform * grip_transform) * todas_las_putas_transforms * grip.offset) == todas_las_putas_transforms);
-
 				// TODO ahora yo estoy modificando el transform del nodo SK_AssaultRifle pero lo que deberia modificar es el root bone si es que es skinned. En este caso
 				// el grip bone. Esto necesita mas planning.  Unreal engine parece que lo mappea asi no mas, no al grip pero al nodo. aunque seguro se pueda las dos
 				assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
-				//grip_transform = assault_rifle_transform;
 				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
 
-				//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &grip_transform[0][0]);
 			}
 			else {
 				if (node->name == "SM_AssaultRifle_Magazine")
-					// esto es asi porque el transform es igual al del hueso.
-					//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(manny_world_transform * mag_rifle_transform)[0][0]);
-
-					//glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &( assault_rifle_transform * skel_assault_rifle_transform * grip_transform * mag_transform)[0][0]);
-
 					// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
 					// el grip no es necesario porque justo es la identity
 					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
@@ -2478,6 +2396,7 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 }
 
 int main() {
+	input_state = new InputState{};
 	SceneGraph scene_graph{};
 	tinygltf::Model model = loadGLTFModel();
 
@@ -2529,6 +2448,7 @@ int main() {
 	}
 	glfwMakeContextCurrent(window);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	glfwSetKeyCallback(window, keyboard_callback);
 	glfwSetCursorPosCallback(window, mouse_callback);
 	glfwSetScrollCallback(window, scroll_callback);
 
@@ -2575,7 +2495,9 @@ int main() {
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
 	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Fire.fbx");
 
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/1-arms,armature+root.glb"));
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/2-arms,armature+root,withdeformbonesonly.glb"));
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple_Y_UP.fbx"));
 	std::cout << "Finished loading Manny" << std::endl;
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
@@ -2674,6 +2596,32 @@ int main() {
 	//physics_system.get_body_interface().GetShape(my_sphere);
 	//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
 	//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
+
+
+
+
+	JPH::RefConst<JPH::Shape> mStandingShape = JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0, 0.5f * 1.0 + 1.0, 0), JPH::Quat::sIdentity(), new JPH::CapsuleShape(0.5f * 1.0, 1.0)).Create().Get();
+	// Create 'player' character
+	JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
+	//settings->mMaxSlopeAngle = sMaxSlopeAngle;
+	settings->mMaxStrength = 5000.0f;
+	//settings->mBackFaceMode = sBackFaceMode;
+	//settings->mCharacterPadding = sCharacterPadding;
+	//settings->mPenetrationRecoverySpeed = sPenetrationRecoverySpeed;
+	//settings->mPredictiveContactDistance = sPredictiveContactDistance;
+	//settings->mSupportingVolume = Plane(Vec3::sAxisY(), -cCharacterRadiusStanding); // Accept contacts that touch the lower sphere of the capsule
+	//settings->mEnhancedInternalEdgeRemoval = sEnhancedInternalEdgeRemoval;
+	//settings->mInnerBodyShape = sCreateInnerBody ? mInnerStandingShape : nullptr;
+	settings->mShape = mStandingShape;
+	JPH::Ref<JPH::CharacterVirtual> mCharacter = new JPH::CharacterVirtual(settings, JPH::Vec3::sZero(), JPH::Quat::sIdentity(), 0, &physics_system.inner_physics_system);
+	//mCharacter->SetCharacterVsCharacterCollision(&mCharacterVsCharacterCollision);
+	//mCharacterVsCharacterCollision.Add(mCharacter);
+
+
+
+
+
+
 
 	physics_system.inner_physics_system.OptimizeBroadPhase();
 
@@ -3140,7 +3088,7 @@ int main() {
 
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-	}
+		}
 #endif
 
 #if 1
@@ -3256,26 +3204,13 @@ int main() {
 #pragma endregion CUBE_OBJECT
 
 #pragma region NODE_RENDERING
-		if (animationActive && animations.size() > 0) {
-			animationTimer += deltaTime;
-			if (animationTimer > animations[activeAnimationIndex].end) {
-				animationTimer -= animations[activeAnimationIndex].end;
-			}
-			updateAnimation(activeAnimationIndex, animationTimer);
-		}
-		//for (size_t i = 0; i < animations.size(); i++) {
-		//	GLTFAnimation& anim = animations[i];
-		//	std::cout << "Animation name: " << anim.name << ", index: " << i << std::endl;
-		//}
-		/*
-			Animation name: A_FP_AssaultRifle_Fire, index: 0
-			Animation name: A_FP_AssaultRifle_Idle_Loop, index: 1
-			Animation name: A_FP_AssaultRifle_Idle_Pose, index: 2
-			Animation name: A_FP_AssaultRifle_Walk_F_Loop, index: 3
-			Animation name: A_Reference, index: 4
-			Animation name: A_FP_WEP_AssaultRifle_Reload, index: 5
-			Animation name: A_WEP_Reference, index: 6
-		*/
+	//	if (animationActive && animations.size() > 0) {
+	//		animationTimer += deltaTime;
+	//		if (animationTimer > animations[activeAnimationIndex].end) {
+	//			animationTimer -= animations[activeAnimationIndex].end;
+	//		}
+	//		updateAnimation(activeAnimationIndex, animationTimer);
+	//	}
 
 		skinning_shader.use();
 		//skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
@@ -3284,19 +3219,13 @@ int main() {
 		for (auto& node : nodes) {
 			//render_node(node, &skinning_shader, &skel_shader);
 		}
-		//skinning_shader.setMat4("nodeMatrix", glm::mat4(1.0f));
-		//glUseProgram(skinning_shader_id);
-		//glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 
 		if (animationActive) {
 			animator.UpdateAnimation(deltaTime);
 			mag_animator.UpdateAnimation(deltaTime);
-			std::cout << "MANNY ANIM BONE NAMES: " << std::endl;
 			for (auto& bone : animator.m_CurrentAnimation->m_Bones) {
-				std::cout << bone.GetBoneName() << std::endl;
 				if (bone.GetBoneName() == "Armature") {
 					manny_armature = bone.GetLocalTransform();
-					print_matrix(manny_armature);
 				}
 				if (bone.GetBoneName() == "root") {
 					root = &bone;
@@ -3308,44 +3237,17 @@ int main() {
 					ik_hand_gun_bone = &bone;
 				}
 			}
-			std::cout << "END BONE NAMES: \n" << std::endl;
-			std::cout << "MAG ANIM BONE NAMES: " << std::endl;
 			for (auto& bone : mag_animator.m_CurrentAnimation->m_Bones) {
-				std::cout << bone.GetBoneName() << std::endl;
-				if (bone.GetBoneName() == "Grip") {
-					print_matrix(bone.GetLocalTransform());
-				}
 				if (bone.GetBoneName() == "Magazine") {
 					mag_bone_transform = bone.GetLocalTransform();
-					print_matrix(mag_bone_transform);
 				}
-				//if (bone.GetBoneName() == "root") {
-				//	root = &bone;
-				//}
-				//if (bone.GetBoneName() == "ik_hand_root") {
-				//	ik_hand_root = &bone;
-				//}
-				//if (bone.GetBoneName() == "ik_hand_gun") {
-				//	ik_hand_gun_bone = &bone;
-				//}
 			}
-			std::cout << "END BONE NAMES: " << std::endl;
 		}
 		// RootNode (este no va, no es un hueso) - Armature -> root -> ik_hand_root -> ik_hand_gun
 		// RootNode (este no va, no es un hueso) - SKEL_AssaultRifle -> Grip -> Magazine
 		int index = skeletons[animator.m_CurrentAnimation->m_skeleton_index].m_BoneInfoMap["ik_hand_gun"].id;
 		ik_something = animator.m_FinalBoneMatrices[index];
-		std::cout << "IK_HAND_GUN transform" << std::endl;
-		print_matrix(ik_hand_gun_bone->GetLocalTransform());
-		print_matrix(ik_something);
 		todas_las_putas_transforms = manny_armature * root->GetLocalTransform() * ik_hand_root->GetLocalTransform() * ik_hand_gun_bone->GetLocalTransform();
-		print_matrix(
-			manny_armature *
-			root->GetLocalTransform() *
-			ik_hand_root->GetLocalTransform() *
-			ik_hand_gun_bone->GetLocalTransform()
-		);
-		//assert(ik_hand_gun_bone->GetLocalTransform() == root->GetLocalTransform() * ik_hand_root->GetLocalTransform() * ik_hand_gun_bone->GetLocalTransform() );
 
 		/* En UNREAL queda:
 			root
@@ -3360,20 +3262,36 @@ int main() {
 
 		skinning_shader.use();
 
-		// esto tiene que ser por modelo porque todos comparten el mismo shader
-		// si dejo la primer linea rompo lo que tiene jointMatrices pero no esta bajo la animacion
 		manny_transforms = animator.GetFinalBoneMatrices();
-
 		mag_transforms = mag_animator.GetFinalBoneMatrices();
+
+		if (input_state->is_key_just_pressed(keys::num_1)) {
+			MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
+
+			JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(projectile.transform.scale.x / 2.0, projectile.transform.scale.y / 2.0, projectile.transform.scale.z / 2.0));
+			floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+			JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+			JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+			projectile.set_shape(shape);
+
+			projectiles.push_back(projectile);
+			INFO("projectiles: %d", projectiles.size());
+
+			MeshBox& stored_projectile = projectiles.back();
+
+			stored_projectile.body.physics_body_id = physics_system.create_body(&stored_projectile.transform, stored_projectile.body.shape, false);
+			JPH::Vec3 direction = JPH::Vec3(curr_camera.forward.x, curr_camera.forward.y, curr_camera.forward.z) * 70.0f;
+			physics_system.get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, direction);
+
+			std::cout << "Input state: is 'space' one-shot pressed" << std::endl;
+		}
+		input_state->update();
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
 				render_assimp_node(node, &skinning_shader, &skel_shader);
 			}
 		}
-		std::cout << "Armature count: " << armature_count << std::endl;
-		manny_transforms.clear();
-		armature_count = 0;
 
 		// assimp
 		/*
@@ -3576,10 +3494,90 @@ int main() {
 
 #pragma endregion r22_RAYCAST
 
-
+		//GLint maxComponents;
+		//glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &maxComponents);
+		//DEBUG("%d\n", maxComponents / 16);
+		// 500 AMD, 256 NVIDIA
 		update_physics(deltaTime);
 
 		physics_system.update_physics(deltaTime);
+
+		JPH::RMat44 com = mCharacter->GetCenterOfMassTransform();
+		JPH::RMat44 world_transform = mCharacter->GetWorldTransform();
+		// both of these are being drawn at the same time. The color doesn't matter because of the way I'm rendering lines.
+		mCharacter->GetShape()->Draw(&physics_system.debugRenderer, com, JPH::Vec3::sReplicate(1.0f), JPH::Color::sGreen, false, true);
+		physics_system.debugRenderer.DrawCapsule(com, 0.5f * 1.0, 1.0 + mCharacter->GetCharacterPadding(), JPH::Color::sRed, JPH::DebugRenderer::ECastShadow::Off, JPH::DebugRenderer::EDrawMode::Wireframe);
+
+
+		// Remember old position
+		JPH::RVec3 old_position = mCharacter->GetPosition();
+
+		// Settings for our update function
+		JPH::CharacterVirtual::ExtendedUpdateSettings update_settings;
+		//if (!sEnableStickToFloor)
+		//	update_settings.mStickToFloorStepDown = JPH::Vec3::sZero();
+		//else
+		update_settings.mStickToFloorStepDown = -mCharacter->GetUp() * update_settings.mStickToFloorStepDown.Length();
+		//if (!sEnableWalkStairs)
+		//	update_settings.mWalkStairsStepUp = JPH::Vec3::sZero();
+		//else
+		//	update_settings.mWalkStairsStepUp = mCharacter->GetUp() * update_settings.mWalkStairsStepUp.Length();
+
+		// Update the character position
+		mCharacter->ExtendedUpdate(deltaTime,
+			-mCharacter->GetUp() * physics_system.inner_physics_system.GetGravity().Length(),
+			update_settings,
+			physics_system.inner_physics_system.GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+			physics_system.inner_physics_system.GetDefaultLayerFilter(Layers::MOVING),
+			{ },
+			{ },
+			*physics_system.temp_allocator);
+
+		// Calculate effective velocity
+		JPH::RVec3 new_position = mCharacter->GetPosition();
+		JPH::Vec3 velocity = JPH::Vec3(new_position - old_position) / deltaTime;
+
+		JPH::Vec3 mDesiredVelocity = JPH::Vec3::sZero();
+		JPH::Vec3 inMovementDirection = JPH::Vec3(0.0, 0.0, 1.0f);
+		if (mCharacter->IsSupported()) {
+			mDesiredVelocity = true ? 0.25f * inMovementDirection * 4.0 + 0.75f * mDesiredVelocity : inMovementDirection * 4.0;
+		}
+
+		mCharacter->UpdateGroundVelocity();
+
+		// Determine new basic velocity
+		JPH::Vec3 current_vertical_velocity = mCharacter->GetLinearVelocity().Dot(mCharacter->GetUp()) * mCharacter->GetUp();
+		JPH::Vec3 ground_velocity = mCharacter->GetGroundVelocity();
+		JPH::Vec3 new_velocity;
+		bool moving_towards_ground = (current_vertical_velocity.GetY() - ground_velocity.GetY()) < 0.1f;
+		if (mCharacter->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround	// If on ground
+			&& (true ?
+				moving_towards_ground													// Inertia enabled: And not moving away from ground
+				: !mCharacter->IsSlopeTooSteep(mCharacter->GetGroundNormal())))			// Inertia disabled: And not on a slope that is too steep
+		{
+			// Assume velocity of ground when on ground
+			new_velocity = ground_velocity;
+		}
+		else
+			new_velocity = current_vertical_velocity;
+
+		// Gravity
+		new_velocity += (physics_system.inner_physics_system.GetGravity()) * deltaTime;
+
+		if (mCharacter->IsSupported())
+		{
+			// Player input
+			new_velocity += mDesiredVelocity;
+		}
+		else
+		{
+			// Preserve horizontal velocity
+			JPH::Vec3 current_horizontal_velocity = mCharacter->GetLinearVelocity() - current_vertical_velocity;
+			new_velocity += current_horizontal_velocity;
+		}
+
+		// Update character velocity
+		mCharacter->SetLinearVelocity(new_velocity);
 
 		//physics_system.DrawBodies(
 		//	JPH::BodyManager::DrawSettings{
@@ -3771,7 +3769,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-}
+	}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -3817,6 +3815,7 @@ void processInput(GLFWwindow* window)
 {
 
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+
 		glfwSetWindowShouldClose(window, true);
 
 	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS && !three_pressed_last_frame) {
@@ -3829,30 +3828,30 @@ void processInput(GLFWwindow* window)
 	}
 
 
-	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !r_pressed_in_last_frame) {
-		MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
+	//if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !r_pressed_in_last_frame) {
+	//	MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
 
-		// Get the context from the user pointer
-		Context* context = static_cast<Context*>(glfwGetWindowUserPointer(window));
+	//	// Get the context from the user pointer
+	//	Context* context = static_cast<Context*>(glfwGetWindowUserPointer(window));
 
-		JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(projectile.transform.scale.x / 2.0, projectile.transform.scale.y / 2.0, projectile.transform.scale.z / 2.0));
-		floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
-		JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
-		JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
-		projectile.set_shape(shape);
+	//	JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(projectile.transform.scale.x / 2.0, projectile.transform.scale.y / 2.0, projectile.transform.scale.z / 2.0));
+	//	floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
+	//	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
+	//	JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
+	//	projectile.set_shape(shape);
 
-		projectiles.push_back(projectile);
-		INFO("projectiles: %d", projectiles.size());
+	//	projectiles.push_back(projectile);
+	//	INFO("projectiles: %d", projectiles.size());
 
-		//physics_system.get_body_interface().GetShape(my_sphere);
-		//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
-		//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
-		MeshBox& stored_projectile = projectiles.back();
+	//	//physics_system.get_body_interface().GetShape(my_sphere);
+	//	//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
+	//	//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
+	//	MeshBox& stored_projectile = projectiles.back();
 
-		stored_projectile.body.physics_body_id = context->physics_system->create_body(&stored_projectile.transform, stored_projectile.body.shape, false);
-		JPH::Vec3 direction = JPH::Vec3(curr_camera.forward.x, curr_camera.forward.y, curr_camera.forward.z) * 70.0f;
-		context->physics_system->get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, direction);
-	}
+	//	stored_projectile.body.physics_body_id = context->physics_system->create_body(&stored_projectile.transform, stored_projectile.body.shape, false);
+	//	JPH::Vec3 direction = JPH::Vec3(curr_camera.forward.x, curr_camera.forward.y, curr_camera.forward.z) * 70.0f;
+	//	context->physics_system->get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, direction);
+	//}
 
 
 	if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
@@ -3959,6 +3958,29 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 	// normal usecase
 }
 
+void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods) {
+	bool pressed = (action == GLFW_PRESS || action == GLFW_REPEAT);
+	// el scan_code no se para que es
+	// action: 1 pressed, 2 released, 3 repeat
+	// 262 right
+	// 263 left
+	// 264 down
+	// 265 up
+	// 340 left-shift mod 1 when pressed or repeat, 0 otherwise
+	// 341 left-ctrl mod 2 when pressed or repeat, 0 otherwise
+	// 342 left-alt mod 4 when pressed or repeat, 0 otherwise
+	// 342 win mod 8 when pressed or repeat, 0 otherwise
+	std::cout << "Key: " << key << " action: " << action << " scan_code: " << scan_code << " mods: " << mods << std::endl;
+	std::cout << "keys(key): " << keys(key) << std::endl;
+
+	std::cout << "keys.arrow_right: " << (keys(key) == keys::arrow_right) << std::endl;
+	std::cout << "keys.arrow_left: " << (keys(key) == keys::arrow_left) << std::endl;
+	std::cout << "keys.arrow_down: " << (keys(key) == keys::arrow_down) << std::endl;
+	std::cout << "keys.arrow_up: " << (keys(key) == keys::arrow_up) << std::endl;
+	std::cout << "keys.space: " << (keys(key) == keys::space) << std::endl;
+
+	input_state->process_key(keys(key), pressed);
+}
 
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
 {

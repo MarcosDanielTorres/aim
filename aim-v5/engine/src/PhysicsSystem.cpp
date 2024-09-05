@@ -99,7 +99,7 @@ void PhysicsSystem::update_physics(float dt) {
 	this->inner_physics_system.GetBodies(body_ids);
 
 	if (this->debug_bodies) {
-		std::cout << "Hay estos bodies: " << body_ids.size() << std::endl;
+		//std::cout << "Hay estos bodies: " << body_ids.size() << std::endl;
 		auto& lock_interface = this->inner_physics_system.GetBodyLockInterfaceNoLock();
 		for (const auto id : body_ids) {
 			JPH::BodyLockRead lock(lock_interface, id);
@@ -128,7 +128,7 @@ void PhysicsSystem::update_physics(float dt) {
 		// even if i dont have this inside this if the simulation, wont run if the bodies go to sleep. I need to awake them.
 
 		// IMPORTANTE: Lo unico que entra aca es lo que se esta moviendo. Lo estatico no, es decir el piso no esta en la simulacion.
-		std::cout << "number of active bodies: " << active_body_ids.size() << std::endl;
+		//std::cout << "number of active bodies: " << active_body_ids.size() << std::endl;
 		// We simulate the physics world in discrete time steps. 60 Hz is a good rate to update the physics system.
 		const float cDeltaTime = 1.0f / 60.0f;
 

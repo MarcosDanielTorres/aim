@@ -14,6 +14,7 @@ link_directories(../thirdparty/imgui)
 include_directories(../thirdparty/JoltPhysics-5.0.0)
 
 include_directories(../thirdparty/assimp-5.2.5/include)
+#include_directories(../thirdparty/assimp-5.4.3/include)
 include_directories(./jaja)
 
 
