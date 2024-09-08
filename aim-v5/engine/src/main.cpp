@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include "game_types.h"
+#include "Player.h"
 //#include "application.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -19,6 +20,8 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+
+
 
 // imgui includes
 #include "imgui.h"
@@ -39,6 +42,13 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+
+// vehicle physics
+#include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
+#include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
+
+
 
 #include <thread>
 #include <cstdarg>
@@ -140,22 +150,37 @@ namespace AssimpGLMHelpers {
 #pragma region i_inputs
 
 enum keys {
+	i = 73,
+	j = 74,
+	k = 75,
+	l = 76,
+	o = 79,
+	p = 80,
+	q = 81,
+	d = 68,
+	a = 65,
+	s = 83,
+	w = 87,
+	num_0 = 48,
 	num_1 = 49,
+	num_2 = 50,
+	num_3 = 51,
+	num_4 = 52,
+	num_5 = 53,
+	num_6 = 54,
+	num_7 = 55,
+	num_8 = 56,
+	num_9 = 57,
+	enter = 257,
 	arrow_right = 262,
 	arrow_left = 263,
 	arrow_down = 264,
 	arrow_up = 265,
 	space = 32,
-	// 263 left
-	// 264 down
-	// 262 right
-	// 263 left
-	// 264 down
-	// 265 up
 };
 
 struct keyboard_state {
-	bool keys[256];
+	bool keys[500];
 };
 
 struct InputState {
@@ -2268,7 +2293,6 @@ void render_assimp_node2(AssimpNode* node, Shader* skinning_shader, Shader* regu
 		for (const auto& mesh : node->mesh->meshes) {
 			glBindVertexArray(mesh->vao);
 
-			std::cout << "node name: " << node->name << std::endl;
 
 			skinning_shader->use();
 			if (node->name == "SK_Manny_Arms") {
@@ -2328,7 +2352,6 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			skinning_shader->setMat4("model", glm::mat4(1.0f));
 
 
-			std::cout << "My node name: " << node->name << std::endl;
 
 			if (node->name == "SM_AssaultRifle_Magazine") {
 				skinning_shader->setMat4("model", glm::mat4(1.0f));
@@ -2359,7 +2382,9 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 				glm::quat rot = qy * qx * qz; // Specify order of rotations here
 
-				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos) *  glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
+					* glm::mat4_cast(rot) // this line should be commented out when loading from gltf
+					* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
 				skinning_shader->setMat4("model", model);
 				manny_world_transform = model * node->transform;
 				for (int i = 0; i < manny_transforms.size(); ++i)
@@ -2496,9 +2521,13 @@ int main() {
 	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Fire.fbx");
 
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+
+	// TODO analyze differences, at least in size
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/1-arms,armature+root.glb"));
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/2-arms,armature+root,withdeformbonesonly.glb"));
-	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple_Y_UP.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/2-arms,armature+root,withdeformbonesonly.glb"));
+
+
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple_Y_UP.fbx"));
 	std::cout << "Finished loading Manny" << std::endl;
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
@@ -2589,13 +2618,13 @@ int main() {
 	// todo: JPH::BodyID my_floor = physics_system.create_body(floor_meshbox.transform.pos, floor_meshbox.physics_body->shape, true);
 
 
-	//JPH::BodyCreationSettings sphere_settings(new JPH::SphereShape(1.5f), JPH::RVec3(0.0_r, 15.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
-	//sphere_settings.mMassPropertiesOverride = JPH::MassProperties{ .mMass = 40.0f };
-	//Transform3D sphere_transform = Transform3D(glm::vec3(0.0, 15.0, 0.0));
-	//JPH::BodyID my_sphere = physics_system.create_body(&sphere_transform, new JPH::SphereShape(1.5f), false);
-	//physics_system.get_body_interface().GetShape(my_sphere);
-	//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
-	//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
+	JPH::BodyCreationSettings sphere_settings(new JPH::SphereShape(1.5f), JPH::RVec3(0.0_r, 15.0_r, 0.0_r), JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+	sphere_settings.mMassPropertiesOverride = JPH::MassProperties{ .mMass = 40.0f };
+	Transform3D sphere_transform = Transform3D(glm::vec3(0.0, 15.0, 0.0));
+	JPH::BodyID my_sphere = physics_system.create_body(&sphere_transform, new JPH::SphereShape(1.5f), false);
+	physics_system.get_body_interface().GetShape(my_sphere);
+	physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
+	physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
 
 
 
@@ -2605,6 +2634,7 @@ int main() {
 	JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
 	//settings->mMaxSlopeAngle = sMaxSlopeAngle;
 	settings->mMaxStrength = 5000.0f;
+	settings->mMass = 70.0f;
 	//settings->mBackFaceMode = sBackFaceMode;
 	//settings->mCharacterPadding = sCharacterPadding;
 	//settings->mPenetrationRecoverySpeed = sPenetrationRecoverySpeed;
@@ -2836,6 +2866,9 @@ int main() {
 		JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
 		boxes[i].set_shape(shape);
 		boxes[i].body.physics_body_id = physics_system.create_body(&boxes[i].transform, boxes[i].body.shape, false);
+
+		//auto body_type = physics_system.get_body_interface().GetBodyType(boxes[i].body.physics_body_id);
+		//std::cout << static_cast<int>(body_type) << std::endl;
 	}
 
 
@@ -2850,6 +2883,13 @@ int main() {
 	floor_meshbox.set_shape(floor_shape); // the problem of storing the shape is that this can change, in theory... but not for now at least
 	floor_meshbox.body.physics_body_id = physics_system.create_body(&floor_meshbox.transform, floor_meshbox.body.shape, true);
 
+	// these ones comes from: #include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
+	/*
+	JPH::VehicleCollisionTesterRay dsa;
+	JPH::VehicleCollisionTesterCastSphere dsa;
+	JPH::VehicleCollisionTesterCastCylinder dsa;
+	JPH::VehicleConstraint 
+	*/
 
 #pragma region l2_LIGHT_DEFINITION
 	PointLight point_lights[] = {
@@ -3264,7 +3304,6 @@ int main() {
 
 		manny_transforms = animator.GetFinalBoneMatrices();
 		mag_transforms = mag_animator.GetFinalBoneMatrices();
-
 		if (input_state->is_key_just_pressed(keys::num_1)) {
 			MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
 
@@ -3273,6 +3312,8 @@ int main() {
 			JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
 			JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
 			projectile.set_shape(shape);
+			JPH::MassProperties props = shape->GetMassProperties();
+			std::cout << "Mass is: " << props.mMass << std::endl;
 
 			projectiles.push_back(projectile);
 			INFO("projectiles: %d", projectiles.size());
@@ -3282,9 +3323,41 @@ int main() {
 			stored_projectile.body.physics_body_id = physics_system.create_body(&stored_projectile.transform, stored_projectile.body.shape, false);
 			JPH::Vec3 direction = JPH::Vec3(curr_camera.forward.x, curr_camera.forward.y, curr_camera.forward.z) * 70.0f;
 			physics_system.get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, direction);
-
-			std::cout << "Input state: is 'space' one-shot pressed" << std::endl;
 		}
+
+		if (input_state->is_key_just_pressed(keys::num_3)) {
+			MeshBox& stored_projectile = projectiles.back();
+			JPH::MassProperties props = stored_projectile.body.shape->GetMassProperties();
+			std::cout << "Mass is: " << props.mMass << std::endl;
+			physics_system.get_body_interface().ActivateBody(stored_projectile.body.physics_body_id);
+			physics_system.get_body_interface().AddImpulse(stored_projectile.body.physics_body_id, JPH::Vec3(10.0f, 0.0f, 0.0f));
+			//physics_system.get_body_interface().AddForce(stored_projectile.body.physics_body_id, JPH::Vec3(10.0f, 0.0f, 0.0f));
+			physics_system.get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, JPH::Vec3(10.0f, 0.0f, 0.0f));
+		}
+
+		/*
+		if (input_state->is_key_just_pressed(keys::num_4))
+		{
+			// Create bullet
+			// VER LA MASA DE LA CAJA, SEGURO ES 0 POR ESO EL IMPULSE NO ANDA
+			JPH::BodyCreationSettings bullet_creation_settings(new JPH::SphereShape(1.0f), mBarrelBody->GetCenterOfMassTransform() * bullet_pos, JPH::Quat::sIdentity(), JPH::EMotionType::Dynamic, Layers::MOVING);
+			bullet_creation_settings.mMotionQuality = JPH::EMotionQuality::LinearCast;
+			bullet_creation_settings.mFriction = 1.0f;
+			bullet_creation_settings.mRestitution = 0.0f;
+			bullet_creation_settings.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
+			bullet_creation_settings.mMassPropertiesOverride.mMass = bullet_mass;
+			Body* bullet = mBodyInterface->CreateBody(bullet_creation_settings);
+			bullet->SetLinearVelocity(mBarrelBody->GetRotation() * bullet_velocity);
+			mBodyInterface->AddBody(bullet->GetID(), EActivation::Activate);
+
+			// Start reloading
+			mReloadTime = bullet_reload_time;
+
+			// Apply opposite impulse to turret body
+			mBodyInterface->AddImpulse(mTurretBody->GetID(), -bullet->GetLinearVelocity() * bullet_mass);
+		}
+		*/
+
 		input_state->update();
 
 		for (auto& scene : scene_graph.nodes) {
@@ -3537,11 +3610,30 @@ int main() {
 		JPH::RVec3 new_position = mCharacter->GetPosition();
 		JPH::Vec3 velocity = JPH::Vec3(new_position - old_position) / deltaTime;
 
-		JPH::Vec3 mDesiredVelocity = JPH::Vec3::sZero();
-		JPH::Vec3 inMovementDirection = JPH::Vec3(0.0, 0.0, 1.0f);
-		if (mCharacter->IsSupported()) {
-			mDesiredVelocity = true ? 0.25f * inMovementDirection * 4.0 + 0.75f * mDesiredVelocity : inMovementDirection * 4.0;
+
+		// handle input
+		glm::vec3 mControlInput = glm::vec3(0.0f);
+		if (input_state->is_key_pressed(keys::arrow_left))		mControlInput.x = -1;
+		if (input_state->is_key_pressed(keys::arrow_right))		mControlInput.x = 1;
+		if (input_state->is_key_pressed(keys::arrow_up))		mControlInput.z = -1;
+		if (input_state->is_key_pressed(keys::arrow_down))		mControlInput.z = 1;
+
+		if (mControlInput != glm::vec3(0.0f)) {
+			glm::normalize(mControlInput);
 		}
+
+		bool mJump = input_state->is_key_pressed(keys::enter);
+
+
+		JPH::Vec3 mDesiredVelocity = JPH::Vec3::sZero();
+		JPH::Vec3 inMovementDirection = JPH::Vec3(mControlInput.x, mControlInput.y, mControlInput.z);
+		if (mCharacter->IsSupported()) {
+			mDesiredVelocity = true ? 0.25f * inMovementDirection * Player::speed + 0.75f * mDesiredVelocity : inMovementDirection * 4.0;
+		}
+
+		// setup rotation, follow the rotation of the free camera for now. it would be like a third person camera
+		//mCharacter->SetUp()
+		// something goes here!
 
 		mCharacter->UpdateGroundVelocity();
 
@@ -3557,6 +3649,10 @@ int main() {
 		{
 			// Assume velocity of ground when on ground
 			new_velocity = ground_velocity;
+
+			if (mJump && moving_towards_ground) {
+				new_velocity += Player::jump_speed * mCharacter->GetUp();
+			}
 		}
 		else
 			new_velocity = current_vertical_velocity;
@@ -3654,7 +3750,6 @@ int main() {
 
 			if (ImGui::DragFloat3("model scale", glm::value_ptr(floor_meshbox.transform.scale), 0.05f, 0.1001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 				floor_meshbox.update_body_shape(physics_system);
-
 			}
 
 			if (ImGui::DragFloat3("model rotation", glm::value_ptr(floor_meshbox.transform.eulerAngles), 0.25f, -FLT_MAX, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
