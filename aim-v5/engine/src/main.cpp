@@ -1553,6 +1553,9 @@ struct SceneGraphNode {
 
 struct SceneGraph {
 	std::vector<SceneGraphNode> nodes;
+	std::vector<SceneGraphNode> collider_nodes;
+	std::unordered_map<std::string, int> name_to_node_index;
+	std::unordered_map<std::string, int> name_to_collider_node_index;
 };
 
 struct LoadedCollider {
@@ -1564,7 +1567,6 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, LoadedCollider& collider_info);
 
 SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
-	//lass
 	Assimp::Importer import;
 	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
 
@@ -1585,6 +1587,15 @@ SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
 	else {
 		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
 	}
+
+	// this->nodes.push_back(scene_graph_node);
+	//if (this->name_to_node_index.find(scene_graph_node.scene_name) == this->name_to_node_index.find(scene_graph_node.scene_name).end()){
+	//  abort();
+	//}else{
+	//	 this->name_to_node_index.find[scene_graph_node.scene_name] = this->nodes.size();
+	//}
+
+	
 	return scene_graph_node;
 }
 
