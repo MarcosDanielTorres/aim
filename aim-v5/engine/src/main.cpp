@@ -6,6 +6,7 @@
 #include <string>
 #include "game_types.h"
 #include "Player.h"
+#include "AssimpLoader.h"
 
 
 //#include "application.h"
@@ -19,9 +20,6 @@
 // este SI anda
 #include "core/logger/logger.h"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
 
 
 
@@ -57,8 +55,6 @@
 #include <cstdarg>
 
 #define PART_11
-#define MAX_NUM_JOINTS 320u
-#define MAX_NUM_BONES_PER_VERTEX 4
 
 //void print_matrix(const glm::mat4& mat);
 JPH_SUPPRESS_WARNINGS
@@ -112,48 +108,9 @@ static float gravity = 2.2;
 
 
 
-// singleton
-
-// Define static members
-//PhysicsSystem* PhysicsSystem::instance = nullptr;
-//std::once_flag PhysicsSystem::initInstanceFlag;
-
-struct Context {
-	PhysicsSystem* physics_system;
-};
-// singleton
-
-
 struct MeshBox;
 bool r_pressed_in_last_frame = false;
 bool three_pressed_last_frame = false;
-
-#pragma region helpers
-
-namespace AssimpGLMHelpers {
-	static inline glm::mat4 ConvertMatrixToGLMFormat(const aiMatrix4x4& from)
-	{
-		glm::mat4 to{};
-		//the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
-		to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
-		to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
-		to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
-		to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
-		return to;
-	}
-
-	static inline glm::vec3 GetGLMVec(const aiVector3D& vec)
-	{
-		return glm::vec3(vec.x, vec.y, vec.z);
-	}
-
-	static inline glm::quat GetGLMQuat(const aiQuaternion& pOrientation)
-	{
-		return glm::quat(pOrientation.w, pOrientation.x, pOrientation.y, pOrientation.z);
-	}
-}
-
-#pragma endregion helpers
 
 #pragma region i_inputs
 
@@ -1573,75 +1530,16 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 }
 
 
-struct AssimpVertex {
-	glm::vec3 position;
-	glm::vec3 normal;
-	glm::vec2 aTexCoords;
-	uint32_t joints[4];
-	float weights[4];
-	//glm::uvec4 joints;
-	//glm::vec4 weights;
-};
 bool porsche_vertices_loaded = false;
 //JPH::MeshShapeSettings* porsche_shape;
 JPH::Ref<JPH::ShapeSettings> porsche_shape;
+JPH::Ref<JPH::ShapeSettings> spa_shape;
 
 std::vector<AssimpVertex> porsche_vertices;
-
 std::vector<uint32_t> porsche_indices;
 
-struct BoneData {
-	int joints[MAX_NUM_BONES_PER_VERTEX];
-	float weights[MAX_NUM_BONES_PER_VERTEX];
-	int count = 0;
-};
-
-
-struct AssimpPrimitive {
-	GLuint vao;
-	GLuint vbo;
-	GLuint ebo;
-	uint32_t index_count;
-};
-
-struct AssimpMesh {
-	std::vector<AssimpPrimitive*> meshes;
-	struct UniformBlock {
-		glm::mat4 matrix;
-		glm::mat4 jointMatrix[MAX_NUM_JOINTS]{};
-		uint32_t jointCount{ 0 };
-	} uniformBlock;
-};
-
-struct AssimpNode {
-	AssimpMesh* mesh;
-	glm::mat4 transform;
-	std::string name;
-	AssimpNode* parent;
-	std::vector<AssimpNode*> children;
-	bool skin = false;
-};
-
-struct SkinnedModel {
-	std::string label;
-	AssimpNode* node;
-	uint8_t skeleton_index;
-};
-
-
-struct AssimpBoneInfo {
-	uint32_t id;
-	glm::mat4 offset;
-};
-
-
-struct Skeleton {
-	std::string label;
-	int8_t parent_index{ -1 };
-	AssimpNode* node;
-	std::unordered_map<std::string, AssimpBoneInfo> m_BoneInfoMap;
-	int m_BoneCounter = 0;
-};
+std::vector<AssimpVertex> track_vertices;
+std::vector<uint32_t> track_indices;
 
 std::vector<Skeleton> skeletons;
 
@@ -1657,7 +1555,13 @@ struct SceneGraph {
 	std::vector<SceneGraphNode> nodes;
 };
 
+struct LoadedCollider {
+	std::vector<AssimpVertex> vertices;
+	std::vector<uint32_t> indices;
+};
+
 void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, bool is_porsche = false);
+void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, LoadedCollider& collider_info);
 
 SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
 	//lass
@@ -1673,6 +1577,7 @@ SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
 	scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
 
 	m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
+
 
 	if (scene_graph_node.scene_name == "porsche_911_gt3_cup-collider.obj") {
 		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node, true);
@@ -2109,6 +2014,9 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 	AssimpNode* new_node = new AssimpNode{};
 	new_node->parent = parent;
 	new_node->name = std::string(node->mName.C_Str());
+	if (new_node->name == "RootNode") {
+		new_node->name = scene_graph_node.scene_name;
+	}
 	new_node->transform = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
 
 	for (int i = 0; i < node->mNumChildren; i++) {
@@ -2333,6 +2241,219 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 	}
 }
 
+
+
+void loadAssimpCollider(std::string path, LoadedCollider& collider_info) {
+	Assimp::Importer import;
+	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
+
+	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+	{
+		AIM_FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
+		abort();
+	}
+
+	m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
+
+	processAssimpNodeCollider(scene->mRootNode, nullptr, scene, collider_info);
+}
+
+void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, LoadedCollider& collider_info) {
+	AssimpNode* new_node = new AssimpNode{};
+	new_node->parent = parent;
+	new_node->name = std::string(node->mName.C_Str());
+	//if (new_node->name == "RootNode") {
+	//	new_node->name = scene_graph_node.scene_name;
+	//}
+	new_node->transform = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
+
+	for (int i = 0; i < node->mNumChildren; i++) {
+		processAssimpNodeCollider(node->mChildren[i], new_node, scene, collider_info);
+	}
+
+	std::cout << "Node name: " << new_node->name << std::endl;
+
+	if (node->mNumMeshes > 0) {
+		AssimpMesh* new_mesh = new AssimpMesh{};
+		for (int i = 0; i < node->mNumMeshes; i++) {
+			// Si o si tienen que estar los dos meshes.
+			// El problema de esto es que se repite el skeleton por algun motivo. Como puedo saber si el skeleton ya existe?
+			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+
+			AssimpPrimitive* new_primitive = new AssimpPrimitive{};
+			bool has_skin = mesh->HasBones();
+
+			std::cout << "Mesh name: " << std::string(mesh->mName.C_Str()) << std::endl;
+			BoneData* vertex_id_to_bone_id = nullptr;
+			if (has_skin) {
+				Skeleton new_skeleton = Skeleton{};
+				vertex_id_to_bone_id = new BoneData[mesh->mNumVertices]{};
+				AIM_DEBUG("Processing Bones:\n");
+				for (size_t i = 0; i < mesh->mNumBones; i++) {
+					std::string boneName = mesh->mBones[i]->mName.C_Str();
+					int boneId = -1;
+					if (new_skeleton.m_BoneInfoMap.find(boneName) == new_skeleton.m_BoneInfoMap.end()) {
+						AssimpBoneInfo boneInfo;
+						boneInfo.id = new_skeleton.m_BoneCounter;
+						boneInfo.offset = AssimpGLMHelpers::ConvertMatrixToGLMFormat(mesh->mBones[i]->mOffsetMatrix);
+						new_skeleton.m_BoneInfoMap[boneName] = boneInfo;
+						boneId = new_skeleton.m_BoneCounter;
+						new_skeleton.m_BoneCounter++;
+					}
+					else {
+						boneId = new_skeleton.m_BoneInfoMap[boneName].id;
+						//abort();
+						std::cout << "hola";
+					}
+					assert(boneId != -1);
+					for (size_t j = 0; j < mesh->mBones[i]->mNumWeights; j++) {
+						uint32_t vertex_id = mesh->mBones[i]->mWeights[j].mVertexId;
+						float weight_value = mesh->mBones[i]->mWeights[j].mWeight;
+
+						if (vertex_id_to_bone_id[vertex_id].count < MAX_NUM_BONES_PER_VERTEX) {
+							vertex_id_to_bone_id[vertex_id].joints[vertex_id_to_bone_id[vertex_id].count] = boneId;
+							vertex_id_to_bone_id[vertex_id].weights[vertex_id_to_bone_id[vertex_id].count] = weight_value;
+							vertex_id_to_bone_id[vertex_id].count++;
+						}
+					}
+				}
+				skeletons.push_back(new_skeleton);
+			}
+			AIM_DEBUG("Processing Mesh: %s", mesh->mName.C_Str());
+
+			AIM_DEBUG("Processing Vertices:");
+			AIM_DEBUG("\tVertices count: % d", mesh->mNumVertices);
+
+			std::vector<AssimpVertex> assimp_vertices;
+			assimp_vertices.reserve(mesh->mNumVertices);
+			for (unsigned int i = 0; i < mesh->mNumVertices; i++)
+			{
+				AssimpVertex vertex;
+				glm::vec3 vector; // we declare a placeholder vector since assimp uses its own vector class that doesn't directly convert to glm's vec3 class so we transfer the data to this placeholder glm::vec3 first.
+				// positions
+				vector.x = mesh->mVertices[i].x;
+				vector.y = mesh->mVertices[i].y;
+				vector.z = mesh->mVertices[i].z;
+				vertex.position = vector;
+				// normals
+				if (mesh->HasNormals())
+				{
+					vector.x = mesh->mNormals[i].x;
+					vector.y = mesh->mNormals[i].y;
+					vector.z = mesh->mNormals[i].z;
+					vertex.normal = vector;
+				}
+				vertex.aTexCoords = glm::vec2(0.0f, 0.0f);
+				if (has_skin) {
+					//vertex.joints = glm::make_vec4(vertex_id_to_bone_id[i].joints.data());
+					//vertex.weights = glm::make_vec4(vertex_id_to_bone_id[i].weights.data());
+					vertex.joints[0] = vertex_id_to_bone_id[i].joints[0];
+					vertex.joints[1] = vertex_id_to_bone_id[i].joints[1];
+					vertex.joints[2] = vertex_id_to_bone_id[i].joints[2];
+					vertex.joints[3] = vertex_id_to_bone_id[i].joints[3];
+
+					vertex.weights[0] = vertex_id_to_bone_id[i].weights[0];
+					vertex.weights[1] = vertex_id_to_bone_id[i].weights[1];
+					vertex.weights[2] = vertex_id_to_bone_id[i].weights[2];
+					vertex.weights[3] = vertex_id_to_bone_id[i].weights[3];
+				}
+				else {
+					//vertex.joints = glm::vec4(0.0f);
+
+					vertex.joints[0] = 0;
+					vertex.joints[1] = 0;
+					vertex.joints[2] = 0;
+					vertex.joints[3] = 0;
+
+					//vertex.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+					vertex.weights[0] = 1.0f;
+					vertex.weights[1] = 0.0f;
+					vertex.weights[2] = 0.0f;
+					vertex.weights[3] = 0.0f;
+
+				}
+				// this is probably not needed
+
+				assimp_vertices.push_back(vertex);
+			}
+
+			size_t vertex_offset = collider_info.vertices.size();
+
+			AIM_DEBUG("Processing Indices...\n");
+			std::vector<uint32_t> assimp_indices;
+			for (unsigned int i = 0; i < mesh->mNumFaces; i++)
+			{
+				aiFace face = mesh->mFaces[i];
+				for (unsigned int j = 0; j < face.mNumIndices; j++) {
+					if (face.mNumIndices != 3) abort();
+					assimp_indices.push_back(face.mIndices[j] + vertex_offset);
+				}
+			}
+
+			new_primitive->index_count = assimp_indices.size();
+			AIM_DEBUG("There are %d indices\n", new_primitive->index_count);
+
+
+			glGenVertexArrays(1, &new_primitive->vao);
+			glBindVertexArray(new_primitive->vao);
+
+			glGenBuffers(1, &new_primitive->vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, new_primitive->vbo);
+			glBufferData(GL_ARRAY_BUFFER, assimp_vertices.size() * sizeof(AssimpVertex), assimp_vertices.data(), GL_STATIC_DRAW);
+
+			glGenBuffers(1, &new_primitive->ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, new_primitive->ebo);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, assimp_indices.size() * sizeof(uint32_t), assimp_indices.data(), GL_STATIC_DRAW);
+
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, position));
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, normal));
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, aTexCoords));
+			glEnableVertexAttribArray(2);
+
+			if (has_skin) {
+				glVertexAttribIPointer(3, 4, GL_UNSIGNED_INT, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
+				//glVertexAttribPointer(3, 4, GL_INT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, joints));
+				glEnableVertexAttribArray(3);
+				glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(AssimpVertex), (void*)offsetof(AssimpVertex, weights));
+				glEnableVertexAttribArray(4);
+
+				delete[] vertex_id_to_bone_id;
+			}
+
+			for (const auto& vertex : assimp_vertices) {
+				collider_info.vertices.push_back(vertex);
+			}
+
+			for (const auto& index : assimp_indices) {
+				collider_info.indices.push_back(index);
+			}
+
+			glBindVertexArray(0);
+
+			new_mesh->meshes.push_back(new_primitive);
+		}
+		new_node->mesh = new_mesh;
+	}
+	//if (parent) {
+	//	parent->children.push_back(new_node);
+	//	std::string parent_name = new_node->parent ? new_node->parent->name : std::string("NULL");
+	//	std::cout << "NODE NAME: " << new_node->name << "  NODE PARENT: " << parent_name << std::endl;
+	//}
+	//else {
+	//	scene_graph_node.assimp_nodes.push_back(new_node);
+	//}
+	//if (new_node->name == "ROOT") {
+	//	std::cout << "IM ROOT" << std::endl;
+	//	for (size_t i = 0; i < new_node->children.size(); i++) {
+	//		std::cout << "CHILDREN " << i << "  CHILDREN NAME: " << new_node->children[i]->name << std::endl;
+
+	//	}
+	//}
+}
+
+
 void load_assimp_anim(std::string path) {
 	//lass
 	Assimp::Importer import;
@@ -2474,6 +2595,11 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
 			}
 
+			//std::cout << "xd Node name: " << node->name << std::endl;
+
+			// TODO ESTO DE CAMBIAR EL TRANSFORM DE ACA NO SIRVE, TIENE QUE EDITARSE A NIVEL PADRE DEL OBJETO. PORQUE PASA QUE PARA OBJETOS
+			// COMO EL PORSCHE, NO SE COMO SE LLAMA EL PADRE
+
 			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
 			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
 			glBindVertexArray(0);
@@ -2498,24 +2624,12 @@ int main() {
 	SceneGraph scene_graph{};
 	tinygltf::Model model = loadGLTFModel();
 
-	/*
-	A_FP_AssaultRifle_Fire
-	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Loop
-	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Idle_Pose
-	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_AssaultRifle_Walk_F_Loop
-	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_Reference
-	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_FP_WEP_AssaultRifle_Reload
-	Aug 10 2024 18:20:35 [INFO] \src\main.cpp:1452: A_WEP_Reference
-	*/
 
 
 	projectiles.reserve(100);
-	//game game_inst;
-	//create_game(&game_inst);
-
-	//game_inst.init(&game_inst);
 
 
+#pragma region glfw_init
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -2562,6 +2676,17 @@ int main() {
 	}
 	AIM_INFO("OpenGL initialized successfully!");
 
+#pragma endregion glfw_init
+
+#pragma region p2_physics_engine_init
+	// this is a must
+	JPH::RegisterDefaultAllocator();
+	PhysicsSystem physics_system{};
+
+#pragma endregion p2_physics_engine_init
+
+#pragma region model_loading
+
 	/*
 	Explicacion:
 	La magazine queda en la posicion del arma pero no tiene nada que ver con los bones. La razon por la cual queda ahi es porque
@@ -2600,7 +2725,8 @@ int main() {
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/2-arms,armature+root,withdeformbonesonly.glb"));
 
 
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple_Y_UP.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple_Y_UP.fbx"));
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
 	std::cout << "Finished loading Manny" << std::endl;
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
@@ -2608,10 +2734,14 @@ int main() {
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 	Animation mag_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Reload.fbx", 2);
 
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj"));
+	LoadedCollider spa_collider_info{};
+	loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
+
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj"));
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj"));
 
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj"));
 
 
 	Animator animator(&danceAnimation);
@@ -2652,10 +2782,7 @@ int main() {
 	}
 #endif
 
-	for (const auto& gltfMesh : model.meshes) {
-		// En los ejemplos que he visto solo hay un mesh en el gltf
-		// meshes.push_back(createMesh(model, gltfMesh));
-	}
+#pragma endregion model_loading
 
 #pragma region imgui
 	// Setup Dear ImGui context
@@ -2671,21 +2798,10 @@ int main() {
 	ImGui_ImplOpenGL3_Init();
 #pragma endregion imgui
 
-#pragma region p2_physics_engine
-
-	// this is a must
-	JPH::RegisterDefaultAllocator();
-	PhysicsSystem physics_system{};
-	// Set up the context
-	Context context;
-	context.physics_system = &physics_system;
-
-	// Set the user pointer
-	glfwSetWindowUserPointer(window, &context);
-	//PhysicsSystem& physics_system = PhysicsSystem::getInstance();
 
 
 
+#pragma region p2_physics_engine_collisions
 	//JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(10.0f, 1.0f, 10.0f));
 	//JPH::BodyID my_floor = physics_system.create_body(Transform3D(glm::vec3(0.0, -1.0, 0.0)), floor_shape, true);
 	//JPH::BodyID my_floor = physics_system.create_body(Transform3D(glm::vec3(0.0, 8.0, 0.0)), new JPH::BoxShape(JPH::Vec3(10.0f, 1.0f, 10.0f)), true);
@@ -2727,6 +2843,7 @@ int main() {
 
 
 
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
 	JPH::Array<JPH::Float3> jolt_vertices;
 	jolt_vertices.reserve(porsche_vertices.size());
@@ -2752,125 +2869,35 @@ int main() {
 
 	JPH::ShapeSettings::ShapeResult shape_result = porsche_shape->Create();
 	JPH::BodyID trackBody = physics_system.create_body(&Transform3D(glm::vec3(0.0)), shape_result.Get(), true);
+	//////////////////////////////////////// //////////////////////////////////////// ////////////////////////////////////////
+
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
+	JPH::Array<JPH::Float3> jolt_vertices2;
+	jolt_vertices2.reserve(spa_collider_info.vertices.size());
+
+	for (const auto& vertex : spa_collider_info.vertices) {
+		jolt_vertices2.emplace_back(JPH::Float3(vertex.position.x, vertex.position.y, vertex.position.z));
+
+	}
+
+	//// Prepare the triangle index data (IndexedTriangleList is Array<IndexedTriangle>)
+	JPH::Array<JPH::IndexedTriangle> jolt_triangles2;
+	jolt_triangles2.reserve(spa_collider_info.indices.size() / 3);
+
+	for (size_t i = 0; i < spa_collider_info.indices.size(); i += 3) {
+		JPH::IndexedTriangle triangle(spa_collider_info.indices[i], spa_collider_info.indices[i + 1], spa_collider_info.indices[i + 2]);
+		jolt_triangles2.emplace_back(triangle);
+
+	}
+
+	//// Create MeshShapeSettings using the VertexList and IndexedTriangleList
+	spa_shape = new JPH::MeshShapeSettings(std::move(jolt_vertices2), std::move(jolt_triangles2));
 
 
-	physics_system.inner_physics_system.OptimizeBroadPhase();
-
-#pragma endregion p2_physics_engine
-
-
-#pragma region renderer
-
-	// build and compile our shader zprogram
-	 // ------------------------------------
-	//Shader lightingShader("5.2.light_casters.vs", "5.2.light_casters.fs");
-	//Shader lightingShader("5.1.light_casters.vs", "5.1.light_casters.fs");
-	//Shader lightingShader("1.colors.vs", "1.colors.fs");
-	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
-	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
-	Shader skinning_shader("skel_shader-2.vs.glsl", "6.multiple_lights.fs.glsl");
-#ifdef PART_1
-	Shader skel_shader("skel_shader-anton-part-1.vs.glsl", "skel_shader-anton-part-1.fs.glsl");
-#else
-	Shader skel_shader("skel_shader.vs.glsl", "skel_shader.fs.glsl");
-#endif
-	skel_id = skel_shader.ID;
-	skinning_shader_id = skinning_shader.ID;
-
-
-
-	Shader Raycast("line_shader.vs", "line_shader.fs");
-
-
-	float vertices1[] = {
-		// positions          // normals           // texture coords
-		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
-		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
-		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
-		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
-		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
-		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
-
-		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
-		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
-		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
-		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
-		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
-		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
-
-		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
-		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
-		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-
-		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
-		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
-		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
-		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
-
-		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
-		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
-		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
-		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
-		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
-		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
-
-		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
-		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
-		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
-		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
-		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
-	};
-
-	float vertices[] = {
-		// Back face
-		-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // Bottom-left
-		 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
-		 0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 0.0f, // bottom-right         
-		 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
-		-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // bottom-left
-		-0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 1.0f, // top-left
-		// Front face        
-		-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
-		 0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 0.0f, // bottom-right
-		 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
-		 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
-		-0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 1.0f, // top-left
-		-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
-		// Left face         
-		-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
-		-0.5f,  0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-left
-		-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
-		-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
-		-0.5f, -0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-right
-		-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
-		// Right face        
-		 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
-		 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
-		 0.5f,  0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-right         
-		 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
-		 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
-		 0.5f, -0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-left     
-		 // Bottom face       
-		 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
-		  0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 1.0f, // top-left
-		  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
-		  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
-		 -0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 0.0f, // bottom-right
-		 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
-		 // Top face          
-		 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
-		  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
-		  0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 1.0f, // top-right     
-		  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
-		 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
-		 -0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 0.0f  // bottom-left        
-	};
+	JPH::ShapeSettings::ShapeResult spa_shape_result = spa_shape->Create();
+	JPH::BodyID spa_body = physics_system.create_body(&Transform3D(glm::vec3(0.0)), spa_shape_result.Get(), true);
+	//////////////////////////////////////// //////////////////////////////////////// ////////////////////////////////////////
 
 
 
@@ -2992,6 +3019,135 @@ int main() {
 	JPH::VehicleConstraint
 	*/
 
+
+	//Vehicle::Vehicle* porsche = new Vehicle::create_vehicle("porsche");
+	//porsche->add_model();
+	//porsche->add_collision_shape();
+
+
+
+
+
+
+
+#pragma region p2_physics_engine_collisions
+
+#pragma region renderer
+
+	// build and compile our shader zprogram
+	 // ------------------------------------
+	//Shader lightingShader("5.2.light_casters.vs", "5.2.light_casters.fs");
+	//Shader lightingShader("5.1.light_casters.vs", "5.1.light_casters.fs");
+	//Shader lightingShader("1.colors.vs", "1.colors.fs");
+	Shader lightingShaderGouraud("gouraud.vs", "gouraud.fs");
+	Shader lightCubeShader("1.light_cube.vs", "1.light_cube.fs");
+	Shader skinning_shader("skel_shader-2.vs.glsl", "6.multiple_lights.fs.glsl");
+#ifdef PART_1
+	Shader skel_shader("skel_shader-anton-part-1.vs.glsl", "skel_shader-anton-part-1.fs.glsl");
+#else
+	Shader skel_shader("skel_shader.vs.glsl", "skel_shader.fs.glsl");
+#endif
+	skel_id = skel_shader.ID;
+	skinning_shader_id = skinning_shader.ID;
+
+
+
+	Shader Raycast("line_shader.vs", "line_shader.fs");
+
+
+	float vertices1[] = {
+		// positions          // normals           // texture coords
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,
+
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,
+		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,
+
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,
+		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,
+
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,
+		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,
+
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,
+		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f
+	};
+
+	float vertices[] = {
+		// Back face
+		-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // Bottom-left
+		 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+		 0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 0.0f, // bottom-right         
+		 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+		-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // bottom-left
+		-0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 1.0f, // top-left
+		// Front face        
+		-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+		 0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 0.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+		 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+		-0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 1.0f, // top-left
+		-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+		// Left face         
+		-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+		-0.5f,  0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-left
+		-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+		-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+		-0.5f, -0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+		-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+		// Right face        
+		 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+		 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+		 0.5f,  0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-right         
+		 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+		 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+		 0.5f, -0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-left     
+		 // Bottom face       
+		 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+		  0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 1.0f, // top-left
+		  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+		  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+		 -0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+		 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+		 // Top face          
+		 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+		  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+		  0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 1.0f, // top-right     
+		  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+		 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+		 -0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 0.0f  // bottom-left        
+	};
+
+
+
+
 #pragma region l2_LIGHT_DEFINITION
 	PointLight point_lights[] = {
 		PointLight{
@@ -3101,6 +3257,8 @@ int main() {
 	float theta = 0.0f;
 	float rot_speed = 1.0f;
 	int bone_matrices_locations[32];
+
+	physics_system.inner_physics_system.OptimizeBroadPhase();
 	while (!glfwWindowShouldClose(window))
 	{
 		float currentFrame = static_cast<float>(glfwGetTime());
@@ -3229,7 +3387,7 @@ int main() {
 
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-	}
+		}
 #endif
 
 #if 1
@@ -3461,110 +3619,14 @@ int main() {
 
 		input_state->update();
 
+		//std::cout << "Printing node names: " << std::endl;
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
+				//std::cout << node->name << std::endl;
 				if (node->name == "porsche_911_gt3_cup-collider.obj") continue;
 				render_assimp_node(node, &skinning_shader, &skel_shader);
 			}
 		}
-
-		// assimp
-		/*
-		if (assault_rifle.mesh) {
-			for (auto mesh : assault_rifle.mesh->meshes) {
-				glBindVertexArray(mesh->vao);
-
-				skinning_shader.use();
-				glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-				glm::quat rot = qz * qy * qx; // Specify order of rotations here
-
-				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -30.0f, 0.0f)) *
-					glm::mat4_cast(rot);
-				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				skinning_shader.setMat4("model", base_model_mat);
-				skinning_shader.setMat4("model", glm::mat4(1.0f));
-
-				glUseProgram(skinning_shader_id);
-				GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-				glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
-
-				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
-
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-
-				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
-				glBindVertexArray(0);
-
-			}
-
-		}
-
-		if (assault_rifle_magazine.mesh) {
-			for (auto mesh : assault_rifle_magazine.mesh->meshes) {
-				glBindVertexArray(mesh->vao);
-
-				skinning_shader.use();
-				glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-				glm::quat rot = qz * qy * qx; // Specify order of rotations here
-
-				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -40.0f, 0.0f)) *
-					glm::mat4_cast(rot);
-				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				//skinning_shader.setMat4("model", base_model_mat);
-				skinning_shader.setMat4("model", finalMagazineTransform);
-
-				glUseProgram(skinning_shader_id);
-				GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-				glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
-
-				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
-
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-
-				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
-				glBindVertexArray(0);
-
-			}
-		}
-
-
-		if (assault_rifle_casing.mesh) {
-			for (auto mesh : assault_rifle_casing.mesh->meshes) {
-				glBindVertexArray(mesh->vao);
-
-				skinning_shader.use();
-				glm::quat qx = glm::angleAxis(glm::radians(00.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-				glm::quat rot = qz * qy * qx; // Specify order of rotations here
-
-				glm::mat4 base_model_mat =
-					glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, -50.0f, 0.0f)) *
-					glm::mat4_cast(rot);
-				//glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
-				skinning_shader.setMat4("model", base_model_mat);
-
-				glUseProgram(skinning_shader_id);
-				GLint jointMatricesLoc = glGetUniformLocation(skinning_shader_id, "jointMatrices");
-				glUniformMatrix4fv(jointMatricesLoc, 0, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)[0]));
-
-				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
-
-				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f)));
-
-				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
-				glBindVertexArray(0);
-			}
-		}
-		*/
-		// assimp
-
 
 
 #pragma endregion NODE_RENDERING
@@ -3669,6 +3731,9 @@ int main() {
 
 #pragma endregion r22_RAYCAST
 
+
+
+#pragma region p2_character_controller
 		//GLint maxComponents;
 		//glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &maxComponents);
 		//DEBUG("%d\n", maxComponents / 16);
@@ -3786,6 +3851,7 @@ int main() {
 		//	);
 
 
+#pragma endregion p2_character_controller
 
 		glfwPollEvents();
 
@@ -3966,7 +4032,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-}
+		}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -3995,7 +4061,7 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	return 0;
-}
+	}
 
 // weird behaviour with chars int uints int8 etc
 unsigned int bitflag_base = 0x00034000;
@@ -4023,33 +4089,6 @@ void processInput(GLFWwindow* window)
 		AIM_INFO("display bone index: %d", display_bone_index);
 
 	}
-
-
-	//if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !r_pressed_in_last_frame) {
-	//	MeshBox projectile = MeshBox(Transform3D(curr_camera.position));
-
-	//	// Get the context from the user pointer
-	//	Context* context = static_cast<Context*>(glfwGetWindowUserPointer(window));
-
-	//	JPH::BoxShapeSettings floor_shape_settings(JPH::Vec3(projectile.transform.scale.x / 2.0, projectile.transform.scale.y / 2.0, projectile.transform.scale.z / 2.0));
-	//	floor_shape_settings.SetEmbedded(); // A ref counted object on the stack (base class RefTarget) should be marked as such to prevent it from being freed when its reference count goes to 0.
-	//	JPH::ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
-	//	JPH::Ref<JPH::Shape> shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
-	//	projectile.set_shape(shape);
-
-	//	projectiles.push_back(projectile);
-	//	INFO("projectiles: %d", projectiles.size());
-
-	//	//physics_system.get_body_interface().GetShape(my_sphere);
-	//	//physics_system.get_body_interface().SetLinearVelocity(my_sphere, JPH::Vec3(0.0f, -2.0f, 0.0f));
-	//	//physics_system.get_body_interface().SetRestitution(my_sphere, 0.5f);
-	//	MeshBox& stored_projectile = projectiles.back();
-
-	//	stored_projectile.body.physics_body_id = context->physics_system->create_body(&stored_projectile.transform, stored_projectile.body.shape, false);
-	//	JPH::Vec3 direction = JPH::Vec3(curr_camera.forward.x, curr_camera.forward.y, curr_camera.forward.z) * 70.0f;
-	//	context->physics_system->get_body_interface().SetLinearVelocity(stored_projectile.body.physics_body_id, direction);
-	//}
-
 
 	if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) {
 
@@ -4167,15 +4206,6 @@ void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, i
 	// 341 left-ctrl mod 2 when pressed or repeat, 0 otherwise
 	// 342 left-alt mod 4 when pressed or repeat, 0 otherwise
 	// 342 win mod 8 when pressed or repeat, 0 otherwise
-	std::cout << "Key: " << key << " action: " << action << " scan_code: " << scan_code << " mods: " << mods << std::endl;
-	std::cout << "keys(key): " << keys(key) << std::endl;
-
-	std::cout << "keys.arrow_right: " << (keys(key) == keys::arrow_right) << std::endl;
-	std::cout << "keys.arrow_left: " << (keys(key) == keys::arrow_left) << std::endl;
-	std::cout << "keys.arrow_down: " << (keys(key) == keys::arrow_down) << std::endl;
-	std::cout << "keys.arrow_up: " << (keys(key) == keys::arrow_up) << std::endl;
-	std::cout << "keys.space: " << (keys(key) == keys::space) << std::endl;
-
 	input_state->process_key(keys(key), pressed);
 }
 
