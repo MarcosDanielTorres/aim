@@ -1,0 +1,5 @@
+/aim-v5/engine/assets/cars/porsche_911_gt3_cup.obj filter=lfs diff=lfs merge=lfs -text
+/aim-v5/engine/assets/models/dancing_vampire.dae filter=lfs diff=lfs merge=lfs -text
+/aim-v5/engine/assets/models/hdp1.glb filter=lfs diff=lfs merge=lfs -text
+/aim-v5/engine/assets/models/untitled2.glb filter=lfs diff=lfs merge=lfs -text
+/aim-v5/engine/assets/tracks/spa.obj filter=lfs diff=lfs merge=lfs -text

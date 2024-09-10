@@ -144,6 +144,6 @@ void JoltDebugRenderer::DrawGeometry(JPH::RMat44Arg inModelMatrix, const JPH::AA
 }
 
 void JoltDebugRenderer::DrawText3D(JPH::RVec3Arg inPosition, const std::string_view& inString, JPH::ColorArg inColor, float inHeight) {
-	DEBUG("JOLT - DrawText3D");
+	AIM_DEBUG("JOLT - DrawText3D");
 }
 

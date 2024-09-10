@@ -21,14 +21,14 @@ public:
 
 		{
 			std::filesystem::path cwd = std::filesystem::current_path();
-			DEBUG("CURRENT PATH: %s", cwd.string().c_str());
+			AIM_DEBUG("CURRENT PATH: %s", cwd.string().c_str());
 		}
 
 
 		std::string vertexFullPath = std::string(AIM_ENGINE_ASSETS_PATH) + vertexPath;
 		std::string fragmentFullPath = std::string(AIM_ENGINE_ASSETS_PATH)  + fragmentPath;
-		DEBUG("Looking for vert shader at: %s", vertexFullPath.c_str());
-		DEBUG("Looking for frag shader at: %s", fragmentFullPath.c_str());
+		AIM_DEBUG("Looking for vert shader at: %s", vertexFullPath.c_str());
+		AIM_DEBUG("Looking for frag shader at: %s", fragmentFullPath.c_str());
 
 		// 1. retrieve the vertex/fragment source code from filePath
 		std::string vertexCode;

@@ -58,7 +58,7 @@ void Camera::process_keyboard(Camera_Movement direction, float deltaTime)
 void Camera::render_gui(ImGuiContext* context) {
 	ImGui::SetCurrentContext(context);
 	if(ImGui::GetCurrentContext() == nullptr) {
-		FATAL("DJSADJLASD");
+		AIM_FATAL("DJSADJLASD");
 		return;
 	}
 	if (ImGui::CollapsingHeader("camera transform", ImGuiTreeNodeFlags_DefaultOpen)) {

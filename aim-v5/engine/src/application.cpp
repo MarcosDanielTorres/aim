@@ -1075,7 +1075,7 @@ void HelloTriangleApplication::initWindow(app_config app_config) {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
         if (!file.is_open()) {
-	  FATAL("No se pudo abrir el archivo: %s", filename.c_str());
+	  AIM_FATAL("No se pudo abrir el archivo: %s", filename.c_str());
 	  return std::vector<char>();
         }
 
@@ -1128,20 +1128,20 @@ void HelloTriangleApplication::initWindow(app_config app_config) {
 	     const char* severity;
 	  switch (messageSeverity) {
 	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-		  DEBUG("%s %s", type, pCallbackData->pMessage);
+		  AIM_DEBUG("%s %s", type, pCallbackData->pMessage);
 	          break;
 	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-		  INFO("%s %s", type, pCallbackData->pMessage);
+		  AIM_INFO("%s %s", type, pCallbackData->pMessage);
 	          break;
 	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-		  WARN("%s %s", type, pCallbackData->pMessage);
+		  AIM_WARN("%s %s", type, pCallbackData->pMessage);
 	          break;
 	      case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-		  ERROR("%s %s", type, pCallbackData->pMessage);
+		  AIM_ERROR("%s %s", type, pCallbackData->pMessage);
 	          break;
 	      default:
 	          severity = "UNKNOWN";
-		  WARN("%s %s %s", severity, type, pCallbackData->pMessage);
+		  AIM_WARN("%s %s %s", severity, type, pCallbackData->pMessage);
 	          break;
 	  }
         return VK_FALSE;

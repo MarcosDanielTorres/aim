@@ -14,9 +14,9 @@ enum LOG_LEVEL {
 
 void AIM_API aim_log_output(LOG_LEVEL log_level, const char* message, const char* file, int line, ...);
 
-#define TRACE(msg, ...) aim_log_output(TRACE, msg, __FILE__, __LINE__, __VA_ARGS__)
-#define INFO(msg, ...) aim_log_output(INFO, msg, __FILE__, __LINE__, __VA_ARGS__)
-#define DEBUG(msg, ...) aim_log_output(DEBUG, msg, __FILE__, __LINE__, __VA_ARGS__)
-#define WARN(msg, ...) aim_log_output(WARN, msg, __FILE__, __LINE__, __VA_ARGS__)
-#define ERROR(msg, ...) aim_log_output(ERROR, msg, __FILE__, __LINE__, __VA_ARGS__)
-#define FATAL(msg, ...) aim_log_output(FATAL, msg, __FILE__, __LINE__, __VA_ARGS__)
+#define AIM_TRACE(msg, ...) aim_log_output(LOG_LEVEL::TRACE, msg, __FILE__, __LINE__, __VA_ARGS__)
+#define AIM_INFO(msg, ...) aim_log_output(LOG_LEVEL::INFO, msg, __FILE__, __LINE__, __VA_ARGS__)
+#define AIM_DEBUG(msg, ...) aim_log_output(LOG_LEVEL::DEBUG, msg, __FILE__, __LINE__, __VA_ARGS__)
+#define AIM_WARN(msg, ...) aim_log_output(LOG_LEVEL::WARN, msg, __FILE__, __LINE__, __VA_ARGS__)
+#define AIM_ERROR(msg, ...) aim_log_output(LOG_LEVEL::ERROR, msg, __FILE__, __LINE__, __VA_ARGS__)
+#define AIM_FATAL(msg, ...) aim_log_output(LOG_LEVEL::FATAL, msg, __FILE__, __LINE__, __VA_ARGS__)

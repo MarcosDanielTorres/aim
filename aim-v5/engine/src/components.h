@@ -28,4 +28,9 @@ namespace aim::Components {
 			rot = qz * qy * qx; // Specify order of rotations here
 		}
 	};
+
+	struct Line3D {
+		glm::vec3 start;
+		glm::vec3 end;
+	};
 }

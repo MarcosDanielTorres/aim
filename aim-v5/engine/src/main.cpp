@@ -6,6 +6,8 @@
 #include <string>
 #include "game_types.h"
 #include "Player.h"
+
+
 //#include "application.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -42,6 +44,7 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 
 // vehicle physics
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
@@ -95,6 +98,8 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 unsigned int loadTexture(const char* path);
 
+#include "Track.h"
+
 int skinning_shader_id = -1;
 
 static bool gui_mode = false;
@@ -102,6 +107,9 @@ static bool wireframe_mode = false;
 static bool physics_mode = false;
 static bool fps_mode = false;
 static float gravity = 2.2;
+
+
+
 
 
 // singleton
@@ -551,8 +559,8 @@ struct TestingRenderer {
 		if (!success)
 		{
 			glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-			FATAL("SHADER::FRAGMENT::COMPILATION_FAILED: ");
-			FATAL("%s", infoLog);
+			AIM_FATAL("SHADER::FRAGMENT::COMPILATION_FAILED: ");
+			AIM_FATAL("%s", infoLog);
 			abort();
 		}
 		// link shaders
@@ -1154,7 +1162,7 @@ tinygltf::Model loadGLTFModel() {
 		boneCount += skin.joints.size();
 	}
 
-	INFO("There are %d bones", boneCount);
+	AIM_INFO("There are %d bones", boneCount);
 
 	return model;
 }
@@ -1337,7 +1345,7 @@ void load_animations(tinygltf::Model& input)
 			dstChannel.samplerIndex = glTFChannel.sampler;
 			dstChannel.node = nodeFromIndex(glTFChannel.target_node);
 			if (!dstChannel.node) {
-				FATAL("COULD NOT LOAD ANIMATION NODE - EMPTY");
+				AIM_FATAL("COULD NOT LOAD ANIMATION NODE - EMPTY");
 				abort();
 			}
 		}
@@ -1574,6 +1582,13 @@ struct AssimpVertex {
 	//glm::uvec4 joints;
 	//glm::vec4 weights;
 };
+bool porsche_vertices_loaded = false;
+//JPH::MeshShapeSettings* porsche_shape;
+JPH::Ref<JPH::ShapeSettings> porsche_shape;
+
+std::vector<AssimpVertex> porsche_vertices;
+
+std::vector<uint32_t> porsche_indices;
 
 struct BoneData {
 	int joints[MAX_NUM_BONES_PER_VERTEX];
@@ -1642,7 +1657,7 @@ struct SceneGraph {
 	std::vector<SceneGraphNode> nodes;
 };
 
-void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node);
+void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, bool is_porsche = false);
 
 SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
 	//lass
@@ -1651,14 +1666,20 @@ SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
 
 	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 	{
-		FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
+		AIM_FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
 		abort();
 	}
 	SceneGraphNode scene_graph_node;
 	scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
 
 	m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
-	processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
+
+	if (scene_graph_node.scene_name == "porsche_911_gt3_cup-collider.obj") {
+		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node, true);
+	}
+	else {
+		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
+	}
 	return scene_graph_node;
 }
 
@@ -2084,14 +2105,14 @@ public:
 };
 #pragma endregion assimp_animator
 
-void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node) {
+void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, bool is_porsche) {
 	AssimpNode* new_node = new AssimpNode{};
 	new_node->parent = parent;
 	new_node->name = std::string(node->mName.C_Str());
 	new_node->transform = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
 
 	for (int i = 0; i < node->mNumChildren; i++) {
-		processAssimpNode(node->mChildren[i], new_node, scene, scene_graph_node);
+		processAssimpNode(node->mChildren[i], new_node, scene, scene_graph_node, is_porsche);
 	}
 
 	std::cout << "Node name: " << new_node->name << std::endl;
@@ -2111,7 +2132,7 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 			if (has_skin) {
 				Skeleton new_skeleton = Skeleton{};
 				vertex_id_to_bone_id = new BoneData[mesh->mNumVertices]{};
-				DEBUG("Processing Bones:\n");
+				AIM_DEBUG("Processing Bones:\n");
 				for (size_t i = 0; i < mesh->mNumBones; i++) {
 					std::string boneName = mesh->mBones[i]->mName.C_Str();
 					int boneId = -1;
@@ -2142,10 +2163,10 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 				}
 				skeletons.push_back(new_skeleton);
 			}
-			DEBUG("Processing Mesh: %s", mesh->mName.C_Str());
+			AIM_DEBUG("Processing Mesh: %s", mesh->mName.C_Str());
 
-			DEBUG("Processing Vertices:");
-			DEBUG("\tVertices count: % d", mesh->mNumVertices);
+			AIM_DEBUG("Processing Vertices:");
+			AIM_DEBUG("\tVertices count: % d", mesh->mNumVertices);
 
 			std::vector<AssimpVertex> assimp_vertices;
 			assimp_vertices.reserve(mesh->mNumVertices);
@@ -2200,17 +2221,21 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 				assimp_vertices.push_back(vertex);
 			}
 
-			DEBUG("Processing Indices...\n");
+			size_t vertex_offset = porsche_vertices.size();
+
+			AIM_DEBUG("Processing Indices...\n");
 			std::vector<uint32_t> assimp_indices;
 			for (unsigned int i = 0; i < mesh->mNumFaces; i++)
 			{
 				aiFace face = mesh->mFaces[i];
-				for (unsigned int j = 0; j < face.mNumIndices; j++)
-					assimp_indices.push_back(face.mIndices[j]);
+				for (unsigned int j = 0; j < face.mNumIndices; j++) {
+					if (face.mNumIndices != 3) abort();
+					assimp_indices.push_back(face.mIndices[j] + vertex_offset);
+				}
 			}
 
 			new_primitive->index_count = assimp_indices.size();
-			DEBUG("There are %d indices\n", new_primitive->index_count);
+			AIM_DEBUG("There are %d indices\n", new_primitive->index_count);
 
 
 			glGenVertexArrays(1, &new_primitive->vao);
@@ -2239,6 +2264,45 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 				glEnableVertexAttribArray(4);
 
 				delete[] vertex_id_to_bone_id;
+			}
+			if (is_porsche) {
+				// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
+				//JPH::Array<JPH::Float3> jolt_vertices;
+				//jolt_vertices.reserve(assimp_vertices.size());
+
+				//for (const auto& vertex : assimp_vertices) {
+				//	jolt_vertices.emplace_back(JPH::Float3(vertex.position.x, vertex.position.y, vertex.position.z));
+				//}
+
+				//// Prepare the triangle index data (IndexedTriangleList is Array<IndexedTriangle>)
+				//JPH::Array<JPH::IndexedTriangle> jolt_triangles;
+				//jolt_triangles.reserve(assimp_indices.size() / 3);
+
+				//for (size_t i = 0; i < assimp_indices.size(); i += 3) {
+				//	JPH::IndexedTriangle triangle(assimp_indices[i], assimp_indices[i + 1], assimp_indices[i + 2]);
+				//	jolt_triangles.emplace_back(triangle);
+				//}
+
+				//// Create MeshShapeSettings using the VertexList and IndexedTriangleList
+				//porsche_shape = new JPH::MeshShapeSettings(std::move(jolt_vertices), std::move(jolt_triangles));
+
+				if (!porsche_vertices_loaded) {
+					//porsche_vertices.insert(porsche_vertices.end(), assimp_vertices.begin(), assimp_vertices.end());
+					//porsche_indices.insert(porsche_indices.end(), assimp_indices.begin(), assimp_indices.end());
+					//porsche_vertices.reserve(assimp_vertices.size());
+					for (const auto& vertex : assimp_vertices) {
+						//porsche_vertices.emplace_back(glm::vec3(vertex.position.x, vertex.position.y, vertex.position.z));
+						porsche_vertices.push_back(vertex);
+					}
+
+					//porsche_indices.reserve(assimp_indices.size());
+
+					for (const auto& index : assimp_indices) {
+						porsche_indices.push_back(index);
+					}
+					std::cout << "IS PORSCHE\n";
+				}
+
 			}
 			glBindVertexArray(0);
 
@@ -2276,11 +2340,11 @@ void load_assimp_anim(std::string path) {
 
 	if (!scene || !scene->mRootNode)
 	{
-		FATAL("ERROR::ASSIMP::%s file%s\n", import.GetErrorString(), scene->GetShortFilename(path.c_str()));
+		AIM_FATAL("ERROR::ASSIMP::%s file%s\n", import.GetErrorString(), scene->GetShortFilename(path.c_str()));
 		abort();
 	}
 	if (!scene->HasAnimations()) {
-		FATAL("Model %s has no animations\n", scene->GetShortFilename(path.c_str()));
+		AIM_FATAL("Model %s has no animations\n", scene->GetShortFilename(path.c_str()));
 		abort();
 	}
 
@@ -2421,6 +2485,15 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 }
 
 int main() {
+	void* spa_data = Track::load_track((std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.csv").c_str());
+	if (!spa_data) {
+		return 0;
+	}
+
+	Track::Track spa_track = Track::process_track2(spa_data);
+
+	AIM_INFO("spa_lines %d\n", sizeof(spa_track.left_lines) / sizeof(glm::vec3));
+
 	input_state = new InputState{};
 	SceneGraph scene_graph{};
 	tinygltf::Model model = loadGLTFModel();
@@ -2464,10 +2537,10 @@ int main() {
 
 
 
-	INFO("GLFW window created successfully!");
+	AIM_INFO("GLFW window created successfully!");
 	if (window == NULL)
 	{
-		FATAL("Failed to create GLFW window");
+		AIM_FATAL("Failed to create GLFW window");
 		glfwTerminate();
 		return -1;
 	}
@@ -2484,10 +2557,10 @@ int main() {
 
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
-		FATAL("Failed to initialize GLAD");
+		AIM_FATAL("Failed to initialize GLAD");
 		return -1;
 	}
-	INFO("OpenGL initialized successfully!");
+	AIM_INFO("OpenGL initialized successfully!");
 
 	/*
 	Explicacion:
@@ -2502,7 +2575,7 @@ int main() {
 	y mal si meto el .fbx (porque se centro en 0,0,0 antes de exportar)
 	Nota: si se comenta el update() hay que pasar node->GetLocalMatrix a "nodeMatrix" ya que no se setteo en el update() y sino es undefined
 	*/
-	INFO("Loading assimp models...\n");
+	AIM_INFO("Loading assimp models...\n");
 	AssimpNode assault_rifle, assault_rifle_magazine, assault_rifle_casing;
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/RIG_AssaultRifle.gltf"));
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
@@ -2534,6 +2607,11 @@ int main() {
 	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx"));
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 	Animation mag_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Reload.fbx", 2);
+
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj"));
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj"));
+
+	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj"));
 
 
 	Animator animator(&danceAnimation);
@@ -2649,8 +2727,31 @@ int main() {
 
 
 
+	// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
+	JPH::Array<JPH::Float3> jolt_vertices;
+	jolt_vertices.reserve(porsche_vertices.size());
+
+	for (const auto& vertex : porsche_vertices) {
+		jolt_vertices.emplace_back(JPH::Float3(vertex.position.x, vertex.position.y, vertex.position.z));
+
+	}
+
+	//// Prepare the triangle index data (IndexedTriangleList is Array<IndexedTriangle>)
+	JPH::Array<JPH::IndexedTriangle> jolt_triangles;
+	jolt_triangles.reserve(porsche_indices.size() / 3);
+
+	for (size_t i = 0; i < porsche_indices.size(); i += 3) {
+		JPH::IndexedTriangle triangle(porsche_indices[i], porsche_indices[i + 1], porsche_indices[i + 2]);
+		jolt_triangles.emplace_back(triangle);
+
+	}
+
+	//// Create MeshShapeSettings using the VertexList and IndexedTriangleList
+	porsche_shape = new JPH::MeshShapeSettings(std::move(jolt_vertices), std::move(jolt_triangles));
 
 
+	JPH::ShapeSettings::ShapeResult shape_result = porsche_shape->Create();
+	JPH::BodyID trackBody = physics_system.create_body(&Transform3D(glm::vec3(0.0)), shape_result.Get(), true);
 
 
 	physics_system.inner_physics_system.OptimizeBroadPhase();
@@ -2888,7 +2989,7 @@ int main() {
 	JPH::VehicleCollisionTesterRay dsa;
 	JPH::VehicleCollisionTesterCastSphere dsa;
 	JPH::VehicleCollisionTesterCastCylinder dsa;
-	JPH::VehicleConstraint 
+	JPH::VehicleConstraint
 	*/
 
 #pragma region l2_LIGHT_DEFINITION
@@ -3128,7 +3229,7 @@ int main() {
 
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-		}
+	}
 #endif
 
 #if 1
@@ -3316,7 +3417,7 @@ int main() {
 			std::cout << "Mass is: " << props.mMass << std::endl;
 
 			projectiles.push_back(projectile);
-			INFO("projectiles: %d", projectiles.size());
+			AIM_INFO("projectiles: %d", projectiles.size());
 
 			MeshBox& stored_projectile = projectiles.back();
 
@@ -3362,6 +3463,7 @@ int main() {
 
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
+				if (node->name == "porsche_911_gt3_cup-collider.obj") continue;
 				render_assimp_node(node, &skinning_shader, &skel_shader);
 			}
 		}
@@ -3864,7 +3966,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-	}
+}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -3918,7 +4020,7 @@ void processInput(GLFWwindow* window)
 		display_bone_index = display_bone_index % boneCount;
 		glUseProgram(skel_id);
 		glUniform1i(glGetUniformLocation(skel_id, "gDisplayBoneIndex"), display_bone_index);
-		INFO("display bone index: %d", display_bone_index);
+		AIM_INFO("display bone index: %d", display_bone_index);
 
 	}
 
@@ -3971,7 +4073,7 @@ void processInput(GLFWwindow* window)
 		JPH::RVec3Arg from = JPH::RVec3Arg(12.0f, 0.0f, 1.0f);
 		JPH::RVec3Arg to = JPH::RVec3Arg(50.0f, 0.0f, 0.0f);
 		JPH::ColorArg color = JPH::ColorArg(0, 0, 255, 255);
-		DEBUG("jaa %f %f %f", from.GetX(), from.GetY(), from.GetZ());
+		AIM_DEBUG("jaa %f %f %f", from.GetX(), from.GetY(), from.GetZ());
 
 		//debugRenderer.DrawLine(from, to, color);
 		cast_ray();
@@ -4044,7 +4146,7 @@ void processInput(GLFWwindow* window)
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-	DEBUG("Window resized!");
+	AIM_DEBUG("Window resized!");
 	// Note: width and height will be significantly larger than specified on retina displays.
 	glViewport(0, 0, width, height);
 
@@ -4126,7 +4228,7 @@ unsigned int loadTexture(char const* path)
 
 	std::string textureFullPath = std::string(AIM_ENGINE_ASSETS_PATH) + "textures/" + path;
 	path = textureFullPath.c_str();
-	DEBUG("path: %s", path);
+	AIM_DEBUG("path: %s", path);
 	int width, height, nrComponents;
 	unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
 	if (data)
@@ -4184,8 +4286,8 @@ unsigned int compile_shaders(const char* vertexShaderSource, const char* fragmen
 	if (!success)
 	{
 		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		FATAL("SHADER::FRAGMENT::COMPILATION_FAILED: ");
-		FATAL("%s", infoLog);
+		AIM_FATAL("SHADER::FRAGMENT::COMPILATION_FAILED: ");
+		AIM_FATAL("%s", infoLog);
 		abort();
 	}
 	// link shaders
