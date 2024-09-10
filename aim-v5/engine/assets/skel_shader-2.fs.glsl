@@ -1,15 +1,3 @@
-#version 330 core
-
-in vec2 TexCoord0;
-in vec3 Normal0;
-in vec3 LocalPos0;
-flat in ivec4 BoneIds0;
-in vec4 Weights0;
-
-uniform int gDisplayBoneIndex;
-
-out vec4 FragColor;
-
-void main() {
-	FragColor = vec4(0.8, 0.8, 0.8, 1.0);
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:45273d1b11ba6dff3aca489b06c3f6f38070ce22e46d87c76526ed74ec381834
+size 238

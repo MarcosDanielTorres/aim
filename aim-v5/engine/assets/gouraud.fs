@@ -1,10 +1,3 @@
-#version 330 core
-out vec4 FragColor;
-
-in vec3 vertexOutputColor;
-uniform vec3 objectColor;
-
-void main()
-{
-    FragColor = vec4(vertexOutputColor * objectColor, 1.0);
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:ac5bee50bb10a7baeaba2f29307a4e841796e58ecf0e6ca0a2d2fc1a14c39f8c
+size 179
