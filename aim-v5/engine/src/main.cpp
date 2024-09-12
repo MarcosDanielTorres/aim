@@ -1551,53 +1551,88 @@ struct SceneGraphNode {
 
 };
 
-struct SceneGraph {
-	std::vector<SceneGraphNode> nodes;
-	std::vector<SceneGraphNode> collider_nodes;
-	std::unordered_map<std::string, int> name_to_node_index;
-	std::unordered_map<std::string, int> name_to_collider_node_index;
-};
-
 struct LoadedCollider {
 	std::vector<AssimpVertex> vertices;
 	std::vector<uint32_t> indices;
 };
 
 void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, bool is_porsche = false);
-void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, LoadedCollider& collider_info);
+void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, LoadedCollider& collider_info);
 
-SceneGraphNode loadAssimp(AssimpNode* assimp_model, std::string path) {
-	Assimp::Importer import;
-	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
+struct SceneGraph {
+	std::vector<SceneGraphNode> nodes;
+	std::vector<LoadedCollider> collider_nodes;
+	std::unordered_map<std::string, int> name_to_node_index;
+	std::unordered_map<std::string, int> name_to_collider_node_index;
 
-	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-	{
-		AIM_FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
-		abort();
+	int loadAssimp(AssimpNode* assimp_model, std::string path) {
+		Assimp::Importer import;
+		const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
+
+		if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+		{
+			AIM_FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
+			abort();
+		}
+		SceneGraphNode scene_graph_node;
+		scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
+
+		m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
+
+
+		if (scene_graph_node.scene_name == "porsche_911_gt3_cup-collider.obj") {
+			processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node, true);
+		}
+		else {
+			processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
+		}
+
+		this->nodes.push_back(scene_graph_node);
+		int node_index{};
+		if (this->name_to_node_index.find(scene_graph_node.scene_name) == this->name_to_node_index.end()) {
+			node_index = this->name_to_node_index.size() - 1;
+			this->name_to_node_index[scene_graph_node.scene_name] = node_index;
+		}
+		else {
+			abort();
+			node_index = this->name_to_node_index[scene_graph_node.scene_name];
+		}
+		return node_index;
 	}
-	SceneGraphNode scene_graph_node;
-	scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
 
-	m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
+	int loadAssimpCollider(std::string path, LoadedCollider& collider_info) {
+		Assimp::Importer import;
+		const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
 
+		if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+		{
+			AIM_FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
+			abort();
+		}
 
-	if (scene_graph_node.scene_name == "porsche_911_gt3_cup-collider.obj") {
-		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node, true);
+		SceneGraphNode scene_graph_node;
+		scene_graph_node.scene_name = scene->GetShortFilename(path.c_str());
+
+		m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
+
+		processAssimpNodeCollider(scene->mRootNode, nullptr, scene, scene_graph_node, collider_info);
+
+		this->collider_nodes.push_back(collider_info);
+		int node_index{};
+		if (this->name_to_collider_node_index.find(scene_graph_node.scene_name) == this->name_to_collider_node_index.end()) {
+			node_index = this->collider_nodes.size() - 1;
+			this->name_to_collider_node_index[scene_graph_node.scene_name] = node_index;
+		}
+		else {
+			abort();
+			node_index = this->name_to_collider_node_index[scene_graph_node.scene_name];
+		}
+		return node_index;
 	}
-	else {
-		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
-	}
+};
 
-	// this->nodes.push_back(scene_graph_node);
-	//if (this->name_to_node_index.find(scene_graph_node.scene_name) == this->name_to_node_index.find(scene_graph_node.scene_name).end()){
-	//  abort();
-	//}else{
-	//	 this->name_to_node_index.find[scene_graph_node.scene_name] = this->nodes.size();
-	//}
 
-	
-	return scene_graph_node;
-}
+
 
 
 #pragma region bones_container
@@ -2254,22 +2289,8 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 
 
 
-void loadAssimpCollider(std::string path, LoadedCollider& collider_info) {
-	Assimp::Importer import;
-	const aiScene * scene = import.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals);
 
-	if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-	{
-		AIM_FATAL("ERROR::ASSIMP::%s\n", import.GetErrorString());
-		abort();
-	}
-
-	m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
-
-	processAssimpNodeCollider(scene->mRootNode, nullptr, scene, collider_info);
-}
-
-void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, LoadedCollider& collider_info) {
+void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, LoadedCollider& collider_info) {
 	AssimpNode* new_node = new AssimpNode{};
 	new_node->parent = parent;
 	new_node->name = std::string(node->mName.C_Str());
@@ -2279,7 +2300,7 @@ void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* 
 	new_node->transform = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
 
 	for (int i = 0; i < node->mNumChildren; i++) {
-		processAssimpNodeCollider(node->mChildren[i], new_node, scene, collider_info);
+		processAssimpNodeCollider(node->mChildren[i], new_node, scene, scene_graph_node, collider_info);
 	}
 
 	std::cout << "Node name: " << new_node->name << std::endl;
@@ -2737,21 +2758,52 @@ int main() {
 
 
 	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple_Y_UP.fbx"));
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+
+	////////////////////// OLD /////////////////////////
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx"));
+	//std::cout << "Finished loading Manny" << std::endl;
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx"));
+	//Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
+	//Animation mag_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Reload.fbx", 2);
+
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj"));
+	//LoadedCollider spa_collider_info{};
+	//loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
+
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj"));
+	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj"));
+
+	////////////////////// OLD /////////////////////////
+
+
+
+	////////////////////// NEW /////////////////////////
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx");
 	std::cout << "Finished loading Manny" << std::endl;
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx"));
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx"));
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx"));
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_AssaultRifle.fbx");
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Magazine.fbx");
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SM_AssaultRifle_Casing.fbx");
+
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 	Animation mag_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Reload.fbx", 2);
 
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj"));
-	//scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj"));
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj");
 	LoadedCollider spa_collider_info{};
-	loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
+	scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
 
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj"));
-	scene_graph.nodes.push_back(loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj"));
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj");
+	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj");
+	////////////////////// NEW /////////////////////////
+
+
+
+
+
+
+
+
 
 
 
@@ -3034,6 +3086,8 @@ int main() {
 	//Vehicle::Vehicle* porsche = new Vehicle::create_vehicle("porsche");
 	//porsche->add_model();
 	//porsche->add_collision_shape();
+
+	// Both are indices into SceneGraph data structures.
 
 
 
@@ -4043,7 +4097,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-		}
+	}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -4072,7 +4126,7 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	return 0;
-	}
+}
 
 // weird behaviour with chars int uints int8 etc
 unsigned int bitflag_base = 0x00034000;

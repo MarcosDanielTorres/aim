@@ -11,14 +11,18 @@
 #include "PhysicsSystem.h"
 
 namespace Vehicle {
-	std::string name;
-	glm::vec3 pos;
-	glm::vec3 center_of_mass;
-	bool rear_wheeled;
 
-
-	void create_vehicle(PhysicsSystem& physics_system) {
+	struct Vehicle {
+		std::string name{ "None" };
+		glm::vec3 pos;
+		glm::vec3 center_of_mass;
+		bool rear_wheeled;
 		
-	}
+		int model_index;
+		int collider_model_index;
 
+		void create_vehicle(PhysicsSystem& physics_system) {
+				
+		}
+	};
 }
