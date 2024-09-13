@@ -14,15 +14,15 @@ namespace Vehicle {
 
 	struct Vehicle {
 		std::string name{ "None" };
-		glm::vec3 pos;
-		glm::vec3 center_of_mass;
-		bool rear_wheeled;
-		
-		int model_index;
-		int collider_model_index;
+		glm::vec3 pos{};
+		glm::vec3 center_of_mass{};
+		bool rear_wheeled = false;
 
-		void create_vehicle(PhysicsSystem& physics_system) {
-				
+		int model_index{ -1 };
+		int collider_model_index{ -1 };
+
+		void create_vehicle(std::string name, glm::vec3 pos = glm::vec3(0.0, 0.0, 0.0), int model_index, int collider_model_index, PhysicsSystem& physics_system) {
+			
 		}
 	};
 }

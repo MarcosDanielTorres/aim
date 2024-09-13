@@ -1530,16 +1530,8 @@ void render_node(GLTFNode* node, Shader* skinning_shader, Shader* regular_shader
 }
 
 
-bool porsche_vertices_loaded = false;
-//JPH::MeshShapeSettings* porsche_shape;
 JPH::Ref<JPH::ShapeSettings> porsche_shape;
 JPH::Ref<JPH::ShapeSettings> spa_shape;
-
-std::vector<AssimpVertex> porsche_vertices;
-std::vector<uint32_t> porsche_indices;
-
-std::vector<AssimpVertex> track_vertices;
-std::vector<uint32_t> track_indices;
 
 std::vector<Skeleton> skeletons;
 
@@ -1556,7 +1548,7 @@ struct LoadedCollider {
 	std::vector<uint32_t> indices;
 };
 
-void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, bool is_porsche = false);
+void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node);
 void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, LoadedCollider& collider_info);
 
 struct SceneGraph {
@@ -1580,12 +1572,7 @@ struct SceneGraph {
 		m_globalInverseTransform = glm::inverse(AssimpGLMHelpers::ConvertMatrixToGLMFormat(scene->mRootNode->mTransformation));
 
 
-		if (scene_graph_node.scene_name == "porsche_911_gt3_cup-collider.obj") {
-			processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node, true);
-		}
-		else {
-			processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
-		}
+		processAssimpNode(scene->mRootNode, nullptr, scene, scene_graph_node);
 
 		this->nodes.push_back(scene_graph_node);
 		int node_index{};
@@ -2056,7 +2043,7 @@ public:
 };
 #pragma endregion assimp_animator
 
-void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node, bool is_porsche) {
+void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, SceneGraphNode& scene_graph_node) {
 	AssimpNode* new_node = new AssimpNode{};
 	new_node->parent = parent;
 	new_node->name = std::string(node->mName.C_Str());
@@ -2066,7 +2053,7 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 	new_node->transform = AssimpGLMHelpers::ConvertMatrixToGLMFormat(node->mTransformation);
 
 	for (int i = 0; i < node->mNumChildren; i++) {
-		processAssimpNode(node->mChildren[i], new_node, scene, scene_graph_node, is_porsche);
+		processAssimpNode(node->mChildren[i], new_node, scene, scene_graph_node);
 	}
 
 	std::cout << "Node name: " << new_node->name << std::endl;
@@ -2175,7 +2162,6 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 				assimp_vertices.push_back(vertex);
 			}
 
-			size_t vertex_offset = porsche_vertices.size();
 
 			AIM_DEBUG("Processing Indices...\n");
 			std::vector<uint32_t> assimp_indices;
@@ -2184,7 +2170,7 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 				aiFace face = mesh->mFaces[i];
 				for (unsigned int j = 0; j < face.mNumIndices; j++) {
 					if (face.mNumIndices != 3) abort();
-					assimp_indices.push_back(face.mIndices[j] + vertex_offset);
+					assimp_indices.push_back(face.mIndices[j]);
 				}
 			}
 
@@ -2218,45 +2204,6 @@ void processAssimpNode(aiNode* node, AssimpNode* parent, const aiScene* scene, S
 				glEnableVertexAttribArray(4);
 
 				delete[] vertex_id_to_bone_id;
-			}
-			if (is_porsche) {
-				// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
-				//JPH::Array<JPH::Float3> jolt_vertices;
-				//jolt_vertices.reserve(assimp_vertices.size());
-
-				//for (const auto& vertex : assimp_vertices) {
-				//	jolt_vertices.emplace_back(JPH::Float3(vertex.position.x, vertex.position.y, vertex.position.z));
-				//}
-
-				//// Prepare the triangle index data (IndexedTriangleList is Array<IndexedTriangle>)
-				//JPH::Array<JPH::IndexedTriangle> jolt_triangles;
-				//jolt_triangles.reserve(assimp_indices.size() / 3);
-
-				//for (size_t i = 0; i < assimp_indices.size(); i += 3) {
-				//	JPH::IndexedTriangle triangle(assimp_indices[i], assimp_indices[i + 1], assimp_indices[i + 2]);
-				//	jolt_triangles.emplace_back(triangle);
-				//}
-
-				//// Create MeshShapeSettings using the VertexList and IndexedTriangleList
-				//porsche_shape = new JPH::MeshShapeSettings(std::move(jolt_vertices), std::move(jolt_triangles));
-
-				if (!porsche_vertices_loaded) {
-					//porsche_vertices.insert(porsche_vertices.end(), assimp_vertices.begin(), assimp_vertices.end());
-					//porsche_indices.insert(porsche_indices.end(), assimp_indices.begin(), assimp_indices.end());
-					//porsche_vertices.reserve(assimp_vertices.size());
-					for (const auto& vertex : assimp_vertices) {
-						//porsche_vertices.emplace_back(glm::vec3(vertex.position.x, vertex.position.y, vertex.position.z));
-						porsche_vertices.push_back(vertex);
-					}
-
-					//porsche_indices.reserve(assimp_indices.size());
-
-					for (const auto& index : assimp_indices) {
-						porsche_indices.push_back(index);
-					}
-					std::cout << "IS PORSCHE\n";
-				}
-
 			}
 			glBindVertexArray(0);
 
@@ -2303,7 +2250,7 @@ void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* 
 		processAssimpNodeCollider(node->mChildren[i], new_node, scene, scene_graph_node, collider_info);
 	}
 
-	std::cout << "Node name: " << new_node->name << std::endl;
+	//std::cout << "Node name: " << new_node->name << std::endl;
 
 	if (node->mNumMeshes > 0) {
 		AssimpMesh* new_mesh = new AssimpMesh{};
@@ -2315,7 +2262,7 @@ void processAssimpNodeCollider(aiNode* node, AssimpNode* parent, const aiScene* 
 			AssimpPrimitive* new_primitive = new AssimpPrimitive{};
 			bool has_skin = mesh->HasBones();
 
-			std::cout << "Mesh name: " << std::string(mesh->mName.C_Str()) << std::endl;
+			//std::cout << "Mesh name: " << std::string(mesh->mName.C_Str()) << std::endl;
 			BoneData* vertex_id_to_bone_id = nullptr;
 			if (has_skin) {
 				Skeleton new_skeleton = Skeleton{};
@@ -2794,7 +2741,8 @@ int main() {
 	scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
 
 	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj");
-	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj");
+	LoadedCollider porsche_collider_info{};
+	scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj", porsche_collider_info);
 	////////////////////// NEW /////////////////////////
 
 
@@ -2909,19 +2857,19 @@ int main() {
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
 	JPH::Array<JPH::Float3> jolt_vertices;
-	jolt_vertices.reserve(porsche_vertices.size());
+	jolt_vertices.reserve(porsche_collider_info.vertices.size());
 
-	for (const auto& vertex : porsche_vertices) {
+	for (const auto& vertex : porsche_collider_info.vertices) {
 		jolt_vertices.emplace_back(JPH::Float3(vertex.position.x, vertex.position.y, vertex.position.z));
 
 	}
 
 	//// Prepare the triangle index data (IndexedTriangleList is Array<IndexedTriangle>)
 	JPH::Array<JPH::IndexedTriangle> jolt_triangles;
-	jolt_triangles.reserve(porsche_indices.size() / 3);
+	jolt_triangles.reserve(porsche_collider_info.indices.size() / 3);
 
-	for (size_t i = 0; i < porsche_indices.size(); i += 3) {
-		JPH::IndexedTriangle triangle(porsche_indices[i], porsche_indices[i + 1], porsche_indices[i + 2]);
+	for (size_t i = 0; i < porsche_collider_info.indices.size(); i += 3) {
+		JPH::IndexedTriangle triangle(porsche_collider_info.indices[i], porsche_collider_info.indices[i + 1], porsche_collider_info.indices[i + 2]);
 		jolt_triangles.emplace_back(triangle);
 
 	}
@@ -3088,9 +3036,6 @@ int main() {
 	//porsche->add_collision_shape();
 
 	// Both are indices into SceneGraph data structures.
-
-
-
 
 
 
@@ -4097,7 +4042,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-	}
+		}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -4126,7 +4071,7 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	return 0;
-}
+		}
 
 // weird behaviour with chars int uints int8 etc
 unsigned int bitflag_base = 0x00034000;
