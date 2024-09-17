@@ -1,3 +1,10 @@
+#define HANDMADE
+#ifdef HANDMADE
+#include "handmade/handmade.h"
+int main() {
+	Handmade::start();
+}
+#else
 // esto es importante de que venga de un include directory externo asi lo puedo leer con <> sino se rompe todo
 // IMPORTANTE: Si no se mete glad arriba del todo se ROMPE es una pelotudez por dios
 #include <glad/glad.h>
@@ -2589,6 +2596,181 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 	}
 }
 
+float primitive_box_vertices[] = {
+	// Back face
+	-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // Bottom-left
+	 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+	 0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 0.0f, // bottom-right         
+	 0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			1.0f, 1.0f, // top-right
+	-0.5f, -0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 0.0f, // bottom-left
+	-0.5f,  0.5f, -0.5f,	0.0f,  0.0f, -1.0f,			0.0f, 1.0f, // top-left
+	// Front face        
+	-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+	 0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 0.0f, // bottom-right
+	 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+	 0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			1.0f, 1.0f, // top-right
+	-0.5f,  0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 1.0f, // top-left
+	-0.5f, -0.5f,  0.5f,	0.0f,  0.0f,  1.0f,			0.0f, 0.0f, // bottom-left
+	// Left face         
+	-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+	-0.5f,  0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-left
+	-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+	-0.5f, -0.5f, -0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-left
+	-0.5f, -0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+	-0.5f,  0.5f,  0.5f,	-1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-right
+	// Right face        
+	 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+	 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+	 0.5f,  0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 1.0f, // top-right         
+	 0.5f, -0.5f, -0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 1.0f, // bottom-right
+	 0.5f,  0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			1.0f, 0.0f, // top-left
+	 0.5f, -0.5f,  0.5f,	1.0f,  0.0f,  0.0f,			0.0f, 0.0f, // bottom-left     
+	 // Bottom face       
+	 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+	  0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 1.0f, // top-left
+	  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+	  0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			1.0f, 0.0f, // bottom-left
+	 -0.5f, -0.5f,  0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 0.0f, // bottom-right
+	 -0.5f, -0.5f, -0.5f,	0.0f, -1.0f,  0.0f,			0.0f, 1.0f, // top-right
+	 // Top face          
+	 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+	  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+	  0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 1.0f, // top-right     
+	  0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			1.0f, 0.0f, // bottom-right
+	 -0.5f,  0.5f, -0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 1.0f, // top-left
+	 -0.5f,  0.5f,  0.5f,	0.0f,  1.0f,  0.0f,			0.0f, 0.0f  // bottom-left        
+};
+
+
+enum PrimitiveType {
+	BOX,
+	TYPE_COUNT,
+};
+
+enum ObjectType {
+	COLLISION_SHAPE,
+	STATIC_MESH,
+	PRIMITIVE_MESH,
+	SKELETON_MESH,
+	OBJECT_TYPE_COUNT,
+};
+
+struct CollisionShape {
+	uint32_t collision_id;
+};
+
+struct StaticMesh {
+	uint32_t node_mesh_id;
+	uint32_t collision_index;
+};
+
+
+
+struct PrimitiveVertex {
+	unsigned int vbo, vao;
+	float* vertices;
+};
+
+PrimitiveVertex primitive_vertices[1];
+
+
+void create_primitive(float vertices[]) {
+	PrimitiveVertex result{};
+	glGenVertexArrays(1, &result.vao);
+	glGenBuffers(1, &result.vbo);
+
+
+	glBindBuffer(GL_ARRAY_BUFFER, result.vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+	glBindVertexArray(result.vao);
+
+	// position attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// normal attribute
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+
+	// texture attribute
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+
+	primitive_vertices[0] = result;
+}
+
+
+
+struct PrimitiveMesh {
+	uint32_t mesh_id;
+	uint32_t collision_index;
+	PrimitiveType type;
+};
+
+struct SkeletonMesh {
+	uint32_t skeleton_id;
+	uint32_t collision_index;
+};
+
+CollisionShape collision_shapes[20];
+
+PrimitiveMesh primitive_meshes[20];
+uint32_t primitive_meshes_count = 0;
+
+StaticMesh static_meshes[20];
+SkeletonMesh skeleton_meshes[20];
+
+struct Object {
+	ObjectType type;
+	uint32_t index;
+};
+
+Object objects[100];
+uint32_t objects_count{ 0 };
+
+uint32_t create_primitive_mesh(PrimitiveType type, Transform3D transform) {
+	Object obj{};
+	switch (type) {
+	case PrimitiveType::BOX: {
+		obj.type = ObjectType::PRIMITIVE_MESH;
+		obj.index = primitive_meshes_count++;
+		objects[objects_count] = obj;
+		break;
+	}
+	default: {
+		abort();
+		break;
+	}
+	}
+	return objects_count++;
+}
+
+void update_primitive(PrimitiveMesh mesh) {
+	primitive_meshes[mesh.mesh_id];
+}
+
+void update_objects() {
+	for (uint32_t i = 0; i < objects_count; i++) {
+		Object* obj = &objects[i];
+
+		switch (obj->type) {
+		case ObjectType::PRIMITIVE_MESH: {
+			update_primitive(primitive_meshes[obj->index]);
+			break;
+		}
+		default: {
+			abort();
+			break;
+		}
+		}
+	}
+}
+
+
+
+
+
 int main() {
 	void* spa_data = Track::load_track((std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.csv").c_str());
 	if (!spa_data) {
@@ -2656,15 +2838,15 @@ int main() {
 	AIM_INFO("OpenGL initialized successfully!");
 
 #pragma endregion glfw_init
-
 #pragma region p2_physics_engine_init
-	// this is a must
 	JPH::RegisterDefaultAllocator();
 	PhysicsSystem physics_system{};
-
 #pragma endregion p2_physics_engine_init
 
 #pragma region model_loading
+create_primitive(primitive_box_vertices);
+uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec3(0.0f, -20.0f, -1.32f)));
+
 
 	/*
 	Explicacion:
@@ -2702,6 +2884,9 @@ int main() {
 	LoadedCollider porsche_collider_info{};
 	scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj", porsche_collider_info);
 	////////////////////// NEW /////////////////////////
+
+
+
 
 
 
@@ -3355,7 +3540,7 @@ int main() {
 
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-		}
+	}
 #endif
 
 #if 1
@@ -4000,7 +4185,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-		}
+}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
@@ -4029,7 +4214,7 @@ int main() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	return 0;
-		}
+}
 
 // weird behaviour with chars int uints int8 etc
 unsigned int bitflag_base = 0x00034000;
@@ -4304,3 +4489,4 @@ unsigned int compile_shaders(const char* vertexShaderSource, const char* fragmen
 	glDeleteShader(fragmentShader);
 	return shaderProgram;
 }
+#endif

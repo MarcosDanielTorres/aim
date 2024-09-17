@@ -83,8 +83,12 @@ JPH::BodyID PhysicsSystem::create_body(aim::Components::Transform3D* transform, 
 	auto body_id = body_interface.CreateAndAddBody(
 		settings, is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
 
-	//body_to_transform_map.emplace(body_id, transform);
 	body_to_transform_map.insert({ body_id, transform });
+
+	//	JPH::Body* body = this->get_body_interface().CreateBody(settings);
+	//	body->SetUserData(322);
+	//	this->get_body_interface().AddBody(body->GetID(), is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+
 	return body_id;
 }
 
@@ -161,6 +165,8 @@ void PhysicsSystem::update_physics(float dt) {
 				const JPH::RMat44& transform = body.GetCenterOfMassTransform();
 				JPH::Vec3 position = transform.GetTranslation();
 				JPH::Quat rotation = transform.GetQuaternion();
+
+				JPH::uint64 user_data = body.GetUserData();
 				mesh_transform->pos = glm::vec3(position.GetX(), position.GetY(), position.GetZ());
 
 				//auto rotation_euler = rotation.GetEulerAngles();
