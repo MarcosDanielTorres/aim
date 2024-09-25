@@ -31,16 +31,19 @@
 #include "learnopengl/shader_m.h"
 
 #include <Windows.h>
+#include <math.h>
 
 #define aim_array_count(array) (sizeof(array)/ sizeof(array[0]))
 
 #define aim_kilobytes(value) (value * 1024LL)
 #define aim_megabytes(value) (aim_kilobytes(value) * 1024LL)
 #define aim_gigabytes(value) (aim_megabytes(value) * 1024LL)
-#define TILE_COUNT_X 17
+
 #define TILE_COUNT_Y 9
+#define TILE_COUNT_X 17
 
 enum keys {
+
 	i = 73,
 	j = 74,
 	k = 75,
@@ -102,13 +105,13 @@ struct InputState {
 	}
 };
 
+InputState input_state{};
 
 struct GameOffscreenBuffer {
 	uint32_t width;
 	uint32_t height;
 	void* memory;
 };
-
 
 struct GameMemory {
 	bool is_initialized;
@@ -120,15 +123,56 @@ struct GameMemory {
 	void* transient_storage;
 };
 
-
 struct GameState {
+	float player_tile_x{ 0 };
+	float player_tile_y{ 0 };
 	float player_x;
 	float player_y;
 };
 
-InputState input_state{};
+struct TileMap {
+	uint32_t* tiles;
+};
+
+struct World {
+	uint32_t tile_count_x{ 17 };
+	uint32_t tile_count_y{ 9 };
+	uint32_t tile_map_count_x{ 2 };
+	uint32_t tile_map_count_y{ 2 };
+	float upper_left_x = 30;
+	float upper_left_y = 0;
+	float tile_width = 60;
+	float tile_height = 60;
+
+	TileMap* tile_maps;
+	TileMap* curr_tile_map;
+};
+
+struct CanonicalPosition {
+	// cords of the tilemap
+	float tile_map_x, tile_map_y;
+	// cords of tiles relative to current tilemap
+	float at_tile_x_in_tilemap, at_tile_y_in_tilemap;
+	// cords of pixels (x, y) relative to current tilemap
+	float at_x_in_tilemap, at_y_in_tilemap;
+	// cords of pixels (x, y) relative to current tile inside current tilemap
+	float at_x_in_tile, at_y_in_tile;
+};
+
+struct RawPosition {
+	float tile_x, tile_y;
+	float x, y;
+};
+
 
 namespace Handmade {
+
+
+	CanonicalPosition get_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y);
+	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float x, float y);
+	TileMap* world_get_tilemap(World* world, int32_t tile_map_x, int32_t tile_map_y);
+	bool tilemap_is_point_empty(World* world, TileMap* tile_map, float x, float y);
+	uint32_t tilemap_get_tile_data_unchecked(World* world, TileMap* tile_map, int32_t x, int32_t y);
 	void game_update_and_render(GameOffscreenBuffer* buffer, GameMemory* game_memory, InputState* input_state, float delta_time);
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b);
 	void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods);
@@ -271,21 +315,21 @@ namespace Handmade {
 		}
 	}
 
+	int32_t floor_f32_to_int32(float num) {
+		return int32_t(floorf(num));
+	}
 
 	int32_t truncate_f32_to_int32(float num) {
 		return int32_t(num);
 	}
 
-
 	int32_t round_f32_to_int32(float num) {
 		return int32_t(num + 0.5);
 	}
 
-
 	int32_t round_f32_to_uint32(float num) {
 		return uint32_t(num + 0.5);
 	}
-
 
 	void game_update_and_render(GameOffscreenBuffer* buffer, GameMemory* game_memory, InputState* input_state, float delta_time) {
 		if (sizeof(GameState) >= (size_t)game_memory->permanent_storage_size) {
@@ -296,46 +340,98 @@ namespace Handmade {
 		if (!game_memory->is_initialized) {
 			game_state->player_x = 600.0f;
 			game_state->player_y = 300.0f;
+			game_state->player_tile_x = 0.0f;
+			game_state->player_tile_y = 0.0f;
 			game_memory->is_initialized = true;
 		}
 
-		float x = -10;
-		float y = -10;
-		float w = 40;
-		float h = 40;
 
 
-		uint32_t tile_map[TILE_COUNT_Y][TILE_COUNT_X] =
+		uint32_t tile_map00[TILE_COUNT_Y][TILE_COUNT_X] =
 		{
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
 			{1, 1, 0, 0,  0, 1, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1},
 			{1, 1, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 1, 0, 1},
 			{1, 0, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 1},
-			{0, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 0},
+			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 0},
 			{1, 1, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 1, 0, 0, 1},
 			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  1, 0, 0, 0, 1},
 			{1, 1, 1, 1,  1, 0, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1},
 			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
 		};
+		uint32_t tile_map01[TILE_COUNT_Y][TILE_COUNT_X] =
+		{
+			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+		};
+		uint32_t tile_map10[TILE_COUNT_Y][TILE_COUNT_X] =
+		{
+			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+		};
+		uint32_t tile_map11[TILE_COUNT_Y][TILE_COUNT_X] =
+		{
+			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+		};
 
+		TileMap tile_maps[2][2];
+		tile_maps[0][0].tiles = (uint32_t*)tile_map00;
+		tile_maps[0][1].tiles = (uint32_t*)tile_map10;
+		tile_maps[1][0].tiles = (uint32_t*)tile_map01;
+		tile_maps[1][1].tiles = (uint32_t*)tile_map11;
 
-		float upper_left_x = -30;
-		float upper_left_y = 0;
-		float tile_width = 60;
-		float tile_height = 60;
-		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 1.0f, 1.0f, 1.0f);
+		World world{};
+		world.tile_maps = (TileMap*)tile_maps;
+		world.curr_tile_map = world_get_tilemap(&world, game_state->player_tile_x, game_state->player_tile_y);
+		if (!world.curr_tile_map) {
+			abort();
+		}
+
+		std::cout << "printing tilemap" << std::endl;
 		for (int i = 0; i < TILE_COUNT_Y; i++) {
 			for (int j = 0; j < TILE_COUNT_X; j++) {
-				draw_rect(buffer, upper_left_x + j * tile_width, upper_left_y + i * tile_height, tile_width, tile_height, 0.5f, 0.5f, 0.5f);
-				if (tile_map[i][j] == 1) {
-					draw_rect(buffer, upper_left_x + j * tile_width, upper_left_y + i * tile_height, tile_width, tile_height, 1.0f, 1.0f, 1.0f);
+				std::cout << world.curr_tile_map->tiles[i * TILE_COUNT_X + j] << " ";
+			}
+			std::cout << "\n";
+		}
+
+
+
+		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 1.0f, 0.0f, 0.0f);
+		for (int i = 0; i < TILE_COUNT_Y; i++) {
+			for (int j = 0; j < TILE_COUNT_X; j++) {
+				draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
+				if (tilemap_get_tile_data_unchecked(&world, world.curr_tile_map, j, i) == 1) {
+					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
 				}
 			}
 		}
 
 		// these are the total width, from the (x, y)
-		float player_width = 0.75f * tile_width;
-		float player_height = 0.75 * tile_height;
+		float player_width = 0.75f * world.tile_width;
+		float player_height = 0.75 * world.tile_height;
 		float player_x = 0;
 		float player_y = 0;
 		if (input_state->is_key_pressed(keys::w)) {
@@ -346,7 +442,6 @@ namespace Handmade {
 
 			player_y += 100.0f;
 		}
-
 		if (input_state->is_key_pressed(keys::a)) {
 
 			player_x -= 100.0f;
@@ -359,65 +454,33 @@ namespace Handmade {
 		float new_player_x = game_state->player_x + player_x * delta_time;
 		float new_player_y = game_state->player_y + player_y * delta_time;
 
-		bool is_valid_1 = false;
-		bool is_valid_2 = false;
-		bool is_valid_3 = false;
-		bool is_valid_4 = false;
+		if (
+			// checks (x + w, y)
+			world_is_point_empty(&world, game_state->player_tile_x, game_state->player_tile_y, new_player_x + player_width, new_player_y) &&
+			// checks (x, y + h)
+			world_is_point_empty(&world, game_state->player_tile_x, game_state->player_tile_y, new_player_x, new_player_y + player_height) &&
+			// checks (x + w, y + h)
+			world_is_point_empty(&world, game_state->player_tile_x, game_state->player_tile_y, new_player_x + player_width, new_player_y + player_height) &&
+			// checks (x, y)
+			world_is_point_empty(&world, game_state->player_tile_x, game_state->player_tile_y, new_player_x, new_player_y)
+			) {
 
-		// checks (x + w, y)
-		{
-			int32_t player_tile_x = truncate_f32_to_int32((new_player_x + player_width - upper_left_x) / tile_width);
-			int32_t player_tile_y = truncate_f32_to_int32((new_player_y - upper_left_y) / tile_height);
-			if (player_tile_x >= 0 && player_tile_x < TILE_COUNT_X && player_tile_y >= 0 && player_tile_y < TILE_COUNT_Y) {
-				is_valid_1 = tile_map[player_tile_y][player_tile_x] == 0;
-			}
-		}
+			CanonicalPosition can_pos = get_canonical_position(
+				&world,
+				game_state->player_tile_x, game_state->player_tile_y,
+				new_player_x, new_player_y
+			);
 
-		// checks (x, y + h)
-		{
-			int32_t player_tile_x = truncate_f32_to_int32((new_player_x - upper_left_x) / tile_width);
-			int32_t player_tile_y = truncate_f32_to_int32((new_player_y + player_height - upper_left_y) / tile_height);
-			if (player_tile_x >= 0 && player_tile_x < TILE_COUNT_X && player_tile_y >= 0 && player_tile_y < TILE_COUNT_Y) {
-				is_valid_2 = tile_map[player_tile_y][player_tile_x] == 0;
-			}
-		}
-
-		// checks (x + w, y + h)
-		{
-			int32_t player_tile_x = truncate_f32_to_int32((new_player_x + player_width - upper_left_x) / tile_width);
-			int32_t player_tile_y = truncate_f32_to_int32((new_player_y + player_height - upper_left_y) / tile_height);
-			if (player_tile_x >= 0 && player_tile_x < TILE_COUNT_X && player_tile_y >= 0 && player_tile_y < TILE_COUNT_Y) {
-				is_valid_3 = tile_map[player_tile_y][player_tile_x] == 0;
-			}
-		}
-
-		// checks (x, y)
-		{
-			int32_t player_tile_x = truncate_f32_to_int32((new_player_x - upper_left_x) / tile_width);
-			int32_t player_tile_y = truncate_f32_to_int32((new_player_y - upper_left_y) / tile_height);
-			if (player_tile_x >= 0 && player_tile_x < TILE_COUNT_X && player_tile_y >= 0 && player_tile_y < TILE_COUNT_Y) {
-				is_valid_4 = tile_map[player_tile_y][player_tile_x] == 0;
-			}
-		}
-
-		if ((is_valid_1 && is_valid_3) && (is_valid_4 && is_valid_2)) {
-			game_state->player_x = new_player_x;
-			game_state->player_y = new_player_y;
-		}
-		else {
-			if (!is_valid_2 || !is_valid_2) {
-				if (player_x < 0) {
-
-					game_state->player_y = new_player_y;
-				}
-				else {
-					if (player_y < 0) {
-
-						game_state->player_x = new_player_x;
-					}
-
-				}
-			}
+			game_state->player_tile_x = can_pos.tile_map_x;
+			game_state->player_tile_y = can_pos.tile_map_y;
+			// These down below are the same thing, different coordinate systems that accomplish the same.
+#if 0
+			game_state->player_x = can_pos.at_x_in_tilemap;
+			game_state->player_y = can_pos.at_y_in_tilemap;
+#else
+			game_state->player_x = world.upper_left_x + can_pos.at_x_in_tile + world.tile_width * can_pos.at_tile_x_in_tilemap;
+			game_state->player_y = world.upper_left_y + can_pos.at_y_in_tile + world.tile_height * can_pos.at_tile_y_in_tilemap;
+#endif
 		}
 
 
@@ -433,6 +496,19 @@ namespace Handmade {
 			player_r, player_g, player_b);
 	}
 
+	bool tilemap_is_point_empty(World* world, TileMap* tile_map, float x, float y) {
+		bool is_valid = false;
+		if (tile_map) {
+			if (x >= 0 && x < TILE_COUNT_X && y >= 0 && y < TILE_COUNT_Y) {
+				is_valid = tilemap_get_tile_data_unchecked(world, tile_map, x, y) == 0;
+			}
+		}
+		return is_valid;
+	}
+
+	uint32_t tilemap_get_tile_data_unchecked(World* world, TileMap* tile_map, int32_t x, int32_t y) {
+		return tile_map->tiles[y * world->tile_count_x + x];
+	}
 
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b) {
 		int32_t x = round_f32_to_int32(f_x);
@@ -459,10 +535,82 @@ namespace Handmade {
 		}
 	}
 
+	TileMap* world_get_tilemap(World* world, int32_t tile_map_x, int32_t tile_map_y) {
+		TileMap* tile_map = nullptr;
+		if (tile_map_x >= 0 && tile_map_x < world->tile_map_count_x && tile_map_y >= 0 && tile_map_y < world->tile_map_count_y) {
+			tile_map = &world->tile_maps[tile_map_y * world->tile_map_count_x + tile_map_x];
+		}
+		return tile_map;
+	}
+
+	CanonicalPosition get_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y) {
+		float aux_x = test_x - world->upper_left_x;
+		float aux_y = test_y - world->upper_left_y;
+		float at_tile_map_x = aux_x;
+		float at_tile_map_y = aux_y;
+
+		float tile_test_x = floor_f32_to_int32(aux_x / world->tile_width);
+		float tile_test_y = floor_f32_to_int32(aux_y / world->tile_height);
+
+		float at_x_in_tile = aux_x - tile_test_x * world->tile_width;
+		float at_y_in_tile = aux_y - tile_test_y * world->tile_height;
+
+		// Note: en vez de hacer `at_tile_map_` en todos los ifs. Como se que `tile_test_` siempre es entre 0 y tile_width
+		// puedo hacer: `at_tile_map_ - world->tile_width * tile_test_` y es lo mismo
+		if (tile_test_x < 0) {
+			at_tile_map_x = world->tile_count_x * world->tile_width + test_x;
+			tile_test_x = world->tile_count_x + tile_test_x;
+			tile_map_x = tile_map_x - 1;
+		}
+
+		if (tile_test_x >= world->tile_count_x) {
+			at_tile_map_x = test_x - world->tile_count_x * world->tile_width;
+			tile_test_x = tile_test_x - world->tile_count_x;
+			tile_map_x = tile_map_x + 1;
+		}
+
+
+		if (tile_test_y < 0) {
+			at_tile_map_y = world->tile_count_y * world->tile_height + test_y;
+			tile_test_y = world->tile_count_y + tile_test_y;
+			tile_map_y = tile_map_y - 1;
+		}
+
+		if (tile_test_y >= world->tile_count_y) {
+			at_tile_map_y = test_y - world->tile_count_y * world->tile_height;
+			tile_test_y = tile_test_y - world->tile_count_y;
+			tile_map_y = tile_map_y + 1;
+		}
+
+		return CanonicalPosition{
+			// cords of the tilemap
+			.tile_map_x = tile_map_x, .tile_map_y = tile_map_y,
+			// cords of tiles relative to current tilemap
+			.at_tile_x_in_tilemap = tile_test_x, .at_tile_y_in_tilemap = tile_test_y,
+			// cords of pixels (x, y) relative to current tilemap
+			.at_x_in_tilemap = at_tile_map_x, .at_y_in_tilemap = at_tile_map_y,
+			// cords of pixels (x, y) relative to current tile inside current tilemap
+			 .at_x_in_tile = at_x_in_tile, .at_y_in_tile = at_y_in_tile,
+		};
+	}
+
+	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y) {
+		bool is_valid = false;
+		CanonicalPosition can_pos = get_canonical_position(world, tile_map_x, tile_map_y, test_x, test_y);
+
+		TileMap* tile_map = world_get_tilemap(world, can_pos.tile_map_x, can_pos.tile_map_y);
+		if (!tile_map) {
+			return false;
+		}
+
+		is_valid = tilemap_is_point_empty(world, tile_map, can_pos.at_tile_x_in_tilemap, can_pos.at_tile_y_in_tilemap);
+		return is_valid;
+	}
 
 	void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods) {
 		bool pressed = (action == GLFW_PRESS || action == GLFW_REPEAT);
 		input_state.process_key(keys(key), pressed);
 	}
+
 }
 
