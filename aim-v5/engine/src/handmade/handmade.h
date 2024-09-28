@@ -123,11 +123,17 @@ struct GameMemory {
 	void* transient_storage;
 };
 
+struct CanonicalPosition {
+	// cords of the tilemap
+	int32_t tile_map_x, tile_map_y;
+	// cords of tiles relative to current tilemap
+	int32_t at_tile_x_in_tilemap, at_tile_y_in_tilemap;
+	// cords of pixels (x, y) relative to current tile inside current tilemap
+	float at_x_in_tile, at_y_in_tile;
+};
+
 struct GameState {
-	float player_tile_x{ 0 };
-	float player_tile_y{ 0 };
-	float player_x;
-	float player_y;
+	CanonicalPosition player_pos;
 };
 
 struct TileMap {
@@ -148,16 +154,6 @@ struct World {
 	TileMap* curr_tile_map;
 };
 
-struct CanonicalPosition {
-	// cords of the tilemap
-	float tile_map_x, tile_map_y;
-	// cords of tiles relative to current tilemap
-	float at_tile_x_in_tilemap, at_tile_y_in_tilemap;
-	// cords of pixels (x, y) relative to current tilemap
-	float at_x_in_tilemap, at_y_in_tilemap;
-	// cords of pixels (x, y) relative to current tile inside current tilemap
-	float at_x_in_tile, at_y_in_tile;
-};
 
 struct RawPosition {
 	float tile_x, tile_y;
@@ -168,8 +164,11 @@ struct RawPosition {
 namespace Handmade {
 
 
-	CanonicalPosition get_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y);
-	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float x, float y);
+	CanonicalPosition compute_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y);
+	CanonicalPosition compute_canonical_position_2(World* world, CanonicalPosition position);
+	void recanonicalize_coord(World* world, int32_t tile_count, int32_t* tilemap, int32_t* tile, float* tile_rel);
+	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float x, float y, CanonicalPosition position);
+	bool world_is_point_empty_2(World* world, CanonicalPosition position);
 	TileMap* world_get_tilemap(World* world, int32_t tile_map_x, int32_t tile_map_y);
 	bool tilemap_is_point_empty(World* world, TileMap* tile_map, float x, float y);
 	uint32_t tilemap_get_tile_data_unchecked(World* world, TileMap* tile_map, int32_t x, int32_t y);
@@ -338,10 +337,14 @@ namespace Handmade {
 
 		GameState* game_state = (GameState*)game_memory->permanent_storage;
 		if (!game_memory->is_initialized) {
-			game_state->player_x = 600.0f;
-			game_state->player_y = 300.0f;
-			game_state->player_tile_x = 0.0f;
-			game_state->player_tile_y = 0.0f;
+			game_state->player_pos = CanonicalPosition{
+				// cords of the tilemap
+				.tile_map_x = 0, .tile_map_y = 0,
+				// cords of tiles relative to current tilemap
+				.at_tile_x_in_tilemap = 4, .at_tile_y_in_tilemap = 4,
+				// cords of pixels (x, y) relative to current tile inside current tilemap
+				 .at_x_in_tile = 0.0f, .at_y_in_tile = 0.0f,
+			};
 			game_memory->is_initialized = true;
 		}
 
@@ -404,7 +407,7 @@ namespace Handmade {
 
 		World world{};
 		world.tile_maps = (TileMap*)tile_maps;
-		world.curr_tile_map = world_get_tilemap(&world, game_state->player_tile_x, game_state->player_tile_y);
+		world.curr_tile_map = world_get_tilemap(&world, game_state->player_pos.tile_map_x, game_state->player_pos.tile_map_y);
 		if (!world.curr_tile_map) {
 			abort();
 		}
@@ -416,8 +419,6 @@ namespace Handmade {
 			}
 			std::cout << "\n";
 		}
-
-
 
 		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 1.0f, 0.0f, 0.0f);
 		for (int i = 0; i < TILE_COUNT_Y; i++) {
@@ -451,9 +452,39 @@ namespace Handmade {
 			player_x += 100.0f;
 		}
 
-		float new_player_x = game_state->player_x + player_x * delta_time;
-		float new_player_y = game_state->player_y + player_y * delta_time;
+		CanonicalPosition new_player = game_state->player_pos;
+		new_player.at_x_in_tile += player_x * delta_time;
+		new_player.at_y_in_tile += player_y * delta_time;
+		new_player = compute_canonical_position_2(&world, new_player);
 
+
+		CanonicalPosition bottom_left_pos = new_player;
+		bottom_left_pos.at_y_in_tile += player_height;
+		bottom_left_pos = compute_canonical_position_2(&world, bottom_left_pos);
+
+
+		CanonicalPosition bottom_center_pos = new_player;
+		bottom_center_pos.at_x_in_tile += 0.5f * player_width;
+		bottom_center_pos.at_y_in_tile += player_height;
+		bottom_center_pos = compute_canonical_position_2(&world, bottom_center_pos);
+
+
+		CanonicalPosition bottom_right_pos = new_player;
+		bottom_right_pos.at_x_in_tile += player_width;
+		bottom_right_pos.at_y_in_tile += player_height;
+		bottom_right_pos = compute_canonical_position_2(&world, bottom_right_pos);
+
+
+		if (world_is_point_empty_2(&world, bottom_left_pos) &&
+			world_is_point_empty_2(&world, bottom_center_pos) &&
+			world_is_point_empty_2(&world, bottom_right_pos))
+		{
+			game_state->player_pos = new_player;
+		}
+
+
+
+#if 0
 		if (
 			// checks (x + w, y)
 			world_is_point_empty(&world, game_state->player_tile_x, game_state->player_tile_y, new_player_x + player_width, new_player_y) &&
@@ -483,12 +514,13 @@ namespace Handmade {
 #endif
 		}
 
+#endif
 
 		float player_r = 1.0f;
 		float player_g = 1.0f;
 		float player_b = 0.0f;
-		float player_left = game_state->player_x;
-		float player_right = game_state->player_y;
+		float player_left = world.upper_left_x + game_state->player_pos.at_x_in_tile + game_state->player_pos.at_tile_x_in_tilemap * world.tile_width;
+		float player_right = world.upper_left_y + game_state->player_pos.at_y_in_tile + game_state->player_pos.at_tile_y_in_tilemap * world.tile_height;
 		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
 		draw_rect(buffer,
 			player_left, player_right,
@@ -496,6 +528,8 @@ namespace Handmade {
 			player_r, player_g, player_b);
 	}
 
+	// x: relative to tilemap
+	// y: relative to tilemap
 	bool tilemap_is_point_empty(World* world, TileMap* tile_map, float x, float y) {
 		bool is_valid = false;
 		if (tile_map) {
@@ -543,67 +577,46 @@ namespace Handmade {
 		return tile_map;
 	}
 
-	CanonicalPosition get_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y) {
-		float aux_x = test_x - world->upper_left_x;
-		float aux_y = test_y - world->upper_left_y;
-		float at_tile_map_x = aux_x;
-		float at_tile_map_y = aux_y;
-
-		float tile_test_x = floor_f32_to_int32(aux_x / world->tile_width);
-		float tile_test_y = floor_f32_to_int32(aux_y / world->tile_height);
-
-		float at_x_in_tile = aux_x - tile_test_x * world->tile_width;
-		float at_y_in_tile = aux_y - tile_test_y * world->tile_height;
-
-		// Note: en vez de hacer `at_tile_map_` en todos los ifs. Como se que `tile_test_` siempre es entre 0 y tile_width
-		// puedo hacer: `at_tile_map_ - world->tile_width * tile_test_` y es lo mismo
-		if (tile_test_x < 0) {
-			at_tile_map_x = world->tile_count_x * world->tile_width + test_x;
-			tile_test_x = world->tile_count_x + tile_test_x;
-			tile_map_x = tile_map_x - 1;
+	void recanonicalize_coord(World* world, int32_t tile_count, int32_t* tilemap, int32_t* tile, float* tile_rel) {
+		int32_t tile_offset = floor_f32_to_int32(*tile_rel / world->tile_width);
+		*tile += tile_offset;
+		*tile_rel -= tile_offset * world->tile_width;
+		//*tilemap += floor_f32_to_int32(*tile / tile_count );
+		if (*tile >= tile_count) {
+			*tilemap += 1;
+			*tile = tile_count - *tile;
+		}
+		else if (*tile < 0){
+			*tilemap -= 1;
+			*tile = tile_count + *tile;
+		}
+		if (*tilemap < 0 || *tilemap >= 2) {
+			abort();
 		}
 
-		if (tile_test_x >= world->tile_count_x) {
-			at_tile_map_x = test_x - world->tile_count_x * world->tile_width;
-			tile_test_x = tile_test_x - world->tile_count_x;
-			tile_map_x = tile_map_x + 1;
+		if (*tile_rel < 0 || *tile_rel >= world->tile_width) {
+			abort();
 		}
-
-
-		if (tile_test_y < 0) {
-			at_tile_map_y = world->tile_count_y * world->tile_height + test_y;
-			tile_test_y = world->tile_count_y + tile_test_y;
-			tile_map_y = tile_map_y - 1;
-		}
-
-		if (tile_test_y >= world->tile_count_y) {
-			at_tile_map_y = test_y - world->tile_count_y * world->tile_height;
-			tile_test_y = tile_test_y - world->tile_count_y;
-			tile_map_y = tile_map_y + 1;
-		}
-
-		return CanonicalPosition{
-			// cords of the tilemap
-			.tile_map_x = tile_map_x, .tile_map_y = tile_map_y,
-			// cords of tiles relative to current tilemap
-			.at_tile_x_in_tilemap = tile_test_x, .at_tile_y_in_tilemap = tile_test_y,
-			// cords of pixels (x, y) relative to current tilemap
-			.at_x_in_tilemap = at_tile_map_x, .at_y_in_tilemap = at_tile_map_y,
-			// cords of pixels (x, y) relative to current tile inside current tilemap
-			 .at_x_in_tile = at_x_in_tile, .at_y_in_tile = at_y_in_tile,
-		};
 	}
 
-	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y) {
-		bool is_valid = false;
-		CanonicalPosition can_pos = get_canonical_position(world, tile_map_x, tile_map_y, test_x, test_y);
+	CanonicalPosition compute_canonical_position_2(World* world, CanonicalPosition pos) {
+		CanonicalPosition result = pos;
 
-		TileMap* tile_map = world_get_tilemap(world, can_pos.tile_map_x, can_pos.tile_map_y);
+		recanonicalize_coord(world, world->tile_count_x, &result.tile_map_x, &result.at_tile_x_in_tilemap, &result.at_x_in_tile);
+		recanonicalize_coord(world, world->tile_count_y, &result.tile_map_y, &result.at_tile_y_in_tilemap, &result.at_y_in_tile);
+
+		return result;
+	}
+
+	bool world_is_point_empty_2(World* world, CanonicalPosition position) {
+		bool is_valid = false;
+
+		TileMap* tile_map = world_get_tilemap(world, position.tile_map_x, position.tile_map_y);
 		if (!tile_map) {
 			return false;
 		}
 
-		is_valid = tilemap_is_point_empty(world, tile_map, can_pos.at_tile_x_in_tilemap, can_pos.at_tile_y_in_tilemap);
+		is_valid = tilemap_is_point_empty(world, tile_map, position.at_tile_x_in_tilemap, position.at_tile_y_in_tilemap);
 		return is_valid;
 	}
 
