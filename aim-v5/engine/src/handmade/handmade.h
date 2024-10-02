@@ -148,8 +148,8 @@ struct World {
 	uint32_t tile_count_y{ 9 };
 	uint32_t tile_map_count_x{ 2 };
 	uint32_t tile_map_count_y{ 2 };
-	float upper_left_x = -30;
-	float upper_left_y = 0;
+	float upper_left_x = 1280 / 9;
+	float upper_left_y = 720 / 9;
 	float tile_width = 60;
 	float tile_height = 60;
 
@@ -354,7 +354,7 @@ namespace Handmade {
 				// cords of tiles relative to current tilemap
 				.at_tile_x_in_tilemap = 3, .at_tile_y_in_tilemap = 3,
 				// cords of pixels (x, y) relative to current tile inside current tilemap
-				 .at_x_in_tile = 5.0f, .at_y_in_tile = 5.0f,
+				 .at_x_in_tile = 0.0f, .at_y_in_tile = 0.0f,
 			};
 			game_memory->is_initialized = true;
 		}
@@ -424,12 +424,12 @@ namespace Handmade {
 			abort();
 		}
 
-		std::cout << "printing tilemap" << std::endl;
+		//std::cout << "printing tilemap" << std::endl;
 		for (int i = 0; i < TILE_COUNT_Y; i++) {
 			for (int j = 0; j < TILE_COUNT_X; j++) {
-				std::cout << world.curr_tile_map->tiles[i * TILE_COUNT_X + j] << " ";
+				//std::cout << world.curr_tile_map->tiles[i * TILE_COUNT_X + j] << " ";
 			}
-			std::cout << "\n";
+			//std::cout << "\n";
 		}
 
 		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 1.0f, 0.0f, 0.0f);
@@ -446,17 +446,17 @@ namespace Handmade {
 		}
 
 		// these are the total width, from the (x, y)
-		float player_height = 1.4;
+		float player_height = 1.4f;
 		float player_width = 0.75f * player_height;
 		float player_x = 0;
 		float player_y = 0;
 		if (input_state->is_key_pressed(keys::w)) {
-			player_y -= 2.0f;
+			player_y += 2.0f;
 		}
 
 		if (input_state->is_key_pressed(keys::s)) {
 
-			player_y += 2.0f;
+			player_y -= 2.0f;
 		}
 		if (input_state->is_key_pressed(keys::a)) {
 
@@ -467,45 +467,42 @@ namespace Handmade {
 			player_x += 2.0f;
 		}
 
-		WorldPosition new_player = game_state->player_pos;
-		new_player.at_x_in_tile += player_x * delta_time;
-		new_player.at_y_in_tile += player_y * delta_time;
-		new_player = compute_canonical_position_2(&world, new_player);
+		// Collision handling :
+		// (0, 0) is at the top left corner of the tile. But because the drawing starts at (x, y) and extends down to (x + xoffset, y + yoffset)
+		// because of the way the textures coords are set, I use the top row of the tile to check collisions and I offset it in Y when drawing.
+		WorldPosition top_center_pos = game_state->player_pos;
+		top_center_pos.at_x_in_tile += player_x * delta_time;
+		top_center_pos.at_y_in_tile += player_y * delta_time;
+		top_center_pos = compute_canonical_position_2(&world, top_center_pos);
 
 
-		WorldPosition bottom_left_pos = new_player;
-		//bottom_left_pos.at_y_in_tile += player_height;
-		bottom_left_pos.at_x_in_tile -= 0.5f * player_width;
-		bottom_left_pos = compute_canonical_position_2(&world, bottom_left_pos);
+		WorldPosition top_left_pos = top_center_pos;
+		top_left_pos.at_x_in_tile -= 0.5f * player_width;
+		top_left_pos = compute_canonical_position_2(&world, top_left_pos);
+
+		WorldPosition top_right_pos = top_center_pos;
+		top_right_pos.at_x_in_tile += 0.5f * player_width;
+		top_right_pos = compute_canonical_position_2(&world, top_right_pos);
 
 
-		//WorldPosition bottom_center_pos = new_player;
-		//bottom_center_pos.at_x_in_tile += 0.5f * player_width;
-		//bottom_center_pos.at_y_in_tile += player_height;
-		//bottom_center_pos = compute_canonical_position_2(&world, bottom_center_pos);
-
-
-		WorldPosition bottom_right_pos = new_player;
-		bottom_right_pos.at_x_in_tile += 0.5f * player_width;
-		//bottom_right_pos.at_y_in_tile += player_height;
-		bottom_right_pos = compute_canonical_position_2(&world, bottom_right_pos);
-
-
-		if (world_is_point_empty_2(&world, bottom_left_pos) &&
-			world_is_point_empty_2(&world, new_player) &&
-			world_is_point_empty_2(&world, bottom_right_pos))
+		if (world_is_point_empty_2(&world, top_left_pos) &&
+			world_is_point_empty_2(&world, top_center_pos) &&
+			world_is_point_empty_2(&world, top_right_pos))
 		{
-			game_state->player_pos = new_player;
+			game_state->player_pos = top_center_pos;
 		}
 
 
 		float player_r = 1.0f;
 		float player_g = 1.0f;
 		float player_b = 0.0f;
-		float player_left = world.upper_left_x + (world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + game_state->player_pos.at_tile_x_in_tilemap * world.tile_width - 0.5f * world.meters_to_pixels * player_width;
-		float player_right = world.upper_left_y + (world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + game_state->player_pos.at_tile_y_in_tilemap * world.tile_height - world.meters_to_pixels * player_height;
-		//float player_left = world.upper_left_x + (world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + game_state->player_pos.at_tile_x_in_tilemap * world.tile_width;
-		//float player_right = world.upper_left_y + (world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + game_state->player_pos.at_tile_y_in_tilemap * world.tile_height;
+		float player_left = world.upper_left_x +
+			(world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + game_state->player_pos.at_tile_x_in_tilemap * world.tile_width -
+			0.5f * world.meters_to_pixels * player_width;
+		float player_right = world.upper_left_y +
+			(world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + game_state->player_pos.at_tile_y_in_tilemap * world.tile_height;
+
+
 		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
 		draw_rect(buffer,
 			player_left, player_right,
@@ -537,7 +534,7 @@ namespace Handmade {
 
 		if (x < 0) x = 0;
 		if (y < 0) y = 0;
-		if (w > buffer->width) w = buffer->width;
+		if (w > buffer->width)	w = buffer->width;
 		if (h > buffer->height) h = buffer->height;
 
 
@@ -547,7 +544,7 @@ namespace Handmade {
 			round_f32_to_uint32(g * 255.0f) << 8 |
 			round_f32_to_uint32(b * 255.0f) << 16;
 
-		for (int pixel_y = y; pixel_y < h + y; pixel_y++) {
+		for (int pixel_y = 719 - y; pixel_y > 719 - y - h; pixel_y--) {
 			for (int pixel_x = x; pixel_x < w + x; pixel_x++) {
 				buffer2[buffer->width * pixel_y + pixel_x] = color;
 			}
