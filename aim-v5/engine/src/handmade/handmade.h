@@ -124,11 +124,13 @@ struct GameMemory {
 };
 
 struct WorldPosition {
-	// cords of the tilemap
-	int32_t tile_map_x, tile_map_y;
-	// cords of tiles relative to current tilemap
-	int32_t at_tile_x_in_tilemap, at_tile_y_in_tilemap;
-	// cords of pixels (x, y) relative to current tile inside current tilemap
+	// first 24 bits used to identify the chunk
+	// the other 8 bits used to identify in which tile inside the chunk
+	// so at most 256 x 256 tiles in a given chunk
+	uint32_t tile_x;
+	uint32_t tile_y;
+	// Cords of pixels (x, y) in meters, relative to current tile inside current tilemap.
+	// These are in meters but transformed to pixels when redering
 	float at_x_in_tile, at_y_in_tile;
 };
 
@@ -153,6 +155,8 @@ struct World {
 	float tile_width = 60;
 	float tile_height = 60;
 
+	// TODO(Marcos): add chunk dim, and shifting and mask
+
 	TileMap* tile_maps;
 	TileMap* curr_tile_map;
 };
@@ -169,7 +173,7 @@ namespace Handmade {
 
 	WorldPosition compute_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y);
 	WorldPosition compute_canonical_position_2(World* world, WorldPosition position);
-	void recanonicalize_coord(World* world, int32_t tile_count, int32_t* tilemap, int32_t* tile, float* tile_rel);
+	void recanonicalize_coord(World* world, int32_t tile_count, int32_t* tile, float* tile_rel);
 	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float x, float y, WorldPosition position);
 	bool world_is_point_empty_2(World* world, WorldPosition position);
 	TileMap* world_get_tilemap(World* world, int32_t tile_map_x, int32_t tile_map_y);
@@ -306,7 +310,7 @@ namespace Handmade {
 			float deltaTime = currentFrame - lastFrame;
 			lastFrame = currentFrame;
 
-			glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+			//glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			glEnable(GL_DEPTH_TEST);
 			glDepthFunc(GL_LESS);
@@ -349,10 +353,8 @@ namespace Handmade {
 		GameState* game_state = (GameState*)game_memory->permanent_storage;
 		if (!game_memory->is_initialized) {
 			game_state->player_pos = WorldPosition{
-				// cords of the tilemap
-				.tile_map_x = 0, .tile_map_y = 0,
-				// cords of tiles relative to current tilemap
-				.at_tile_x_in_tilemap = 3, .at_tile_y_in_tilemap = 3,
+				.tile_x = 3,
+				.tile_y = 3,
 				// cords of pixels (x, y) relative to current tile inside current tilemap
 				 .at_x_in_tile = 0.0f, .at_y_in_tile = 0.0f,
 			};
@@ -419,7 +421,7 @@ namespace Handmade {
 
 		World world{};
 		world.tile_maps = (TileMap*)tile_maps;
-		world.curr_tile_map = world_get_tilemap(&world, game_state->player_pos.tile_map_x, game_state->player_pos.tile_map_y);
+		world.curr_tile_map = world_get_tilemap(&world, game_state->player_pos.tile_x, game_state->player_pos.tile_y);
 		if (!world.curr_tile_map) {
 			abort();
 		}
@@ -432,14 +434,17 @@ namespace Handmade {
 			//std::cout << "\n";
 		}
 
-		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 1.0f, 0.0f, 0.0f);
+		//uint32_t test_bit = uint32_t(0xABCDEF03);
+		//uint32_t some_tile = test_bit & (255);
+		//uint32_t some_tilemap = test_bit >> unsigned char(8);
+		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 0.3f, 0.0f, 0.0f);
 		for (int i = 0; i < TILE_COUNT_Y; i++) {
 			for (int j = 0; j < TILE_COUNT_X; j++) {
 				draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
 				if (tilemap_get_tile_data_unchecked(&world, world.curr_tile_map, j, i) == 1) {
 					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
 				}
-				if (i == game_state->player_pos.at_tile_y_in_tilemap && j == game_state->player_pos.at_tile_x_in_tilemap) {
+				if (i == (game_state->player_pos.tile_y & uint32_t(255)) && j == (game_state->player_pos.tile_x & uint32_t(255))) {
 					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
 				}
 			}
@@ -497,10 +502,10 @@ namespace Handmade {
 		float player_g = 1.0f;
 		float player_b = 0.0f;
 		float player_left = world.upper_left_x +
-			(world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + game_state->player_pos.at_tile_x_in_tilemap * world.tile_width -
+			(world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + (game_state->player_pos.tile_x & uint32_t(255)) * world.tile_width -
 			0.5f * world.meters_to_pixels * player_width;
 		float player_right = world.upper_left_y +
-			(world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + game_state->player_pos.at_tile_y_in_tilemap * world.tile_height;
+			(world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + (game_state->player_pos.tile_y & uint32_t(255)) * world.tile_height;
 
 
 		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
@@ -551,7 +556,10 @@ namespace Handmade {
 		}
 	}
 
-	TileMap* world_get_tilemap(World* world, int32_t tile_map_x, int32_t tile_map_y) {
+	TileMap* world_get_tilemap(World* world, int32_t tile_x, int32_t tile_y) {
+		// TODO(Marcos): separate this into a different struct. Could be private but probably not
+		int32_t tile_map_x = tile_x >> unsigned char(8);
+		int32_t tile_map_y = tile_y >> unsigned char(8);
 		TileMap* tile_map = nullptr;
 		if (tile_map_x >= 0 && tile_map_x < world->tile_map_count_x && tile_map_y >= 0 && tile_map_y < world->tile_map_count_y) {
 			tile_map = &world->tile_maps[tile_map_y * world->tile_map_count_x + tile_map_x];
@@ -559,32 +567,35 @@ namespace Handmade {
 		return tile_map;
 	}
 
-	void recanonicalize_coord(World* world, int32_t tile_count, int32_t* tilemap, int32_t* tile, float* tile_rel) {
+	void recanonicalize_coord(World* world, uint32_t tile_count, uint32_t* tile, float* tile_rel) {
 		int32_t tile_offset = floor_f32_to_int32(*tile_rel / world->tile_side_in_meters);
-		*tile += tile_offset;
+		int32_t temp_tile = *tile & uint32_t(255);
+		int32_t temp_tilemap = *tile >> unsigned char(8);
+		temp_tile += tile_offset;
 		*tile_rel -= tile_offset * world->tile_side_in_meters;
 		if (*tile_rel < 0 || *tile_rel >= world->tile_side_in_meters) {
 			abort();
 		}
 		//*tilemap += floor_f32_to_int32(*tile / tile_count );
-		if (*tile >= tile_count) {
-			*tilemap += 1;
-			*tile = tile_count - *tile;
+		if (temp_tile >= tile_count) {
+			temp_tilemap += 1;
+			temp_tile = tile_count - *tile;
 		}
 		else if (*tile < 0) {
-			*tilemap -= 1;
-			*tile = tile_count + *tile;
+			temp_tilemap -= 1;
+			temp_tile = tile_count + *tile;
 		}
-		if (*tilemap < 0 || *tilemap >= 2) {
+		if (temp_tilemap < 0 || temp_tilemap >= 2) {
 			abort();
 		}
+		*tile = (temp_tilemap << unsigned char(8)) | temp_tile;
 	}
 
 	WorldPosition compute_canonical_position_2(World* world, WorldPosition pos) {
 		WorldPosition result = pos;
 
-		recanonicalize_coord(world, world->tile_count_x, &result.tile_map_x, &result.at_tile_x_in_tilemap, &result.at_x_in_tile);
-		recanonicalize_coord(world, world->tile_count_y, &result.tile_map_y, &result.at_tile_y_in_tilemap, &result.at_y_in_tile);
+		recanonicalize_coord(world, world->tile_count_x, &result.tile_x, &result.at_x_in_tile);
+		recanonicalize_coord(world, world->tile_count_y, &result.tile_y, &result.at_y_in_tile);
 
 		return result;
 	}
@@ -592,12 +603,12 @@ namespace Handmade {
 	bool world_is_point_empty_2(World* world, WorldPosition position) {
 		bool is_valid = false;
 
-		TileMap* tile_map = world_get_tilemap(world, position.tile_map_x, position.tile_map_y);
+		TileMap* tile_map = world_get_tilemap(world, position.tile_x, position.tile_y);
 		if (!tile_map) {
 			return false;
 		}
 
-		is_valid = tilemap_is_point_empty(world, tile_map, position.at_tile_x_in_tilemap, position.at_tile_y_in_tilemap);
+		is_valid = tilemap_is_point_empty(world, tile_map, position.tile_x, position.tile_y);
 		return is_valid;
 	}
 
