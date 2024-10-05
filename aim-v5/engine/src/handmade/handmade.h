@@ -2,31 +2,14 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
-#include <string>
-#include "game_types.h"
-#include "Player.h"
-#include "AssimpLoader.h"
 
-
-//#include "application.h"
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-// este NO anda
-//#include <core/logger/logger.h>
-// este SI anda
 #include "core/logger/logger.h"
-
-
 
 
 // imgui includes
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
-
 
 #include "learnopengl/shader_m.h"
 
@@ -38,6 +21,12 @@
 #define aim_kilobytes(value) (value * 1024LL)
 #define aim_megabytes(value) (aim_kilobytes(value) * 1024LL)
 #define aim_gigabytes(value) (aim_megabytes(value) * 1024LL)
+
+#define CHUNK_DIM 256
+
+// TODO(Marcos): Move these to a 'screen' view
+// buffer size == screen view == screen resolution
+// screen resolution will define tile_count
 
 #define TILE_COUNT_Y 9
 #define TILE_COUNT_X 17
@@ -123,12 +112,20 @@ struct GameMemory {
 	void* transient_storage;
 };
 
+struct ChunkInfo {
+	uint32_t chunk_x;
+	uint32_t chunk_y;
+
+	uint32_t tile_x;
+	uint32_t tile_y;
+};
+
 struct WorldPosition {
 	// first 24 bits used to identify the chunk
 	// the other 8 bits used to identify in which tile inside the chunk
 	// so at most 256 x 256 tiles in a given chunk
-	uint32_t tile_x;
-	uint32_t tile_y;
+	uint32_t packed_chunk_x;
+	uint32_t packed_chunk_y;
 	// Cords of pixels (x, y) in meters, relative to current tile inside current tilemap.
 	// These are in meters but transformed to pixels when redering
 	float at_x_in_tile, at_y_in_tile;
@@ -138,7 +135,7 @@ struct GameState {
 	WorldPosition player_pos;
 };
 
-struct TileMap {
+struct WorldChunk {
 	uint32_t* tiles;
 };
 
@@ -146,39 +143,30 @@ struct World {
 	float tile_side_in_meters{ 1.4f };
 	float tile_side_in_pixels{ 60.0f };
 	float meters_to_pixels{ 60.0f / 1.4f };
-	uint32_t tile_count_x{ 17 };
-	uint32_t tile_count_y{ 9 };
-	uint32_t tile_map_count_x{ 2 };
-	uint32_t tile_map_count_y{ 2 };
 	float upper_left_x = 1280 / 9;
 	float upper_left_y = 720 / 9;
 	float tile_width = 60;
 	float tile_height = 60;
 
-	// TODO(Marcos): add chunk dim, and shifting and mask
-
-	TileMap* tile_maps;
-	TileMap* curr_tile_map;
+	uint32_t chunk_dim{ 256 };
+	// TODO(Marcos): crear funciones porque no es intuitivo que mierda hacen 
+	uint32_t chunk_shift{ 8 };
+	uint32_t chunk_mask { (uint32_t(1) << chunk_shift) - uint32_t(1)};
+	WorldChunk* chunks;
 };
 
-
-struct RawPosition {
-	float tile_x, tile_y;
-	float x, y;
-};
 
 
 namespace Handmade {
+	// TODO(Marcos): y si saco toda esta mierda de aca y la meto en la struct y listo? como member functions
+	// Al menos me ahorraria todos estos fordecls que encima rompen la poronga de plugin de vim cuando hago goto
 
-
-	WorldPosition compute_canonical_position(World* world, float tile_map_x, float tile_map_y, float test_x, float test_y);
-	WorldPosition compute_canonical_position_2(World* world, WorldPosition position);
-	void recanonicalize_coord(World* world, int32_t tile_count, int32_t* tile, float* tile_rel);
-	bool world_is_point_empty(World* world, float tile_map_x, float tile_map_y, float x, float y, WorldPosition position);
-	bool world_is_point_empty_2(World* world, WorldPosition position);
-	TileMap* world_get_tilemap(World* world, int32_t tile_map_x, int32_t tile_map_y);
-	bool tilemap_is_point_empty(World* world, TileMap* tile_map, float x, float y);
-	uint32_t tilemap_get_tile_data_unchecked(World* world, TileMap* tile_map, int32_t x, int32_t y);
+	// fordecls
+	WorldPosition compute_canonical_position(World* world, WorldPosition position);
+	ChunkInfo get_chunk_info(World* world, int32_t chunk_info_x, int32_t chunk_info_y);
+	bool world_is_point_empty(World* world, WorldPosition position);
+	WorldChunk get_chunk(World* world, uint32_t chunk_x, uint32_t chunk_y);
+	uint32_t get_tile_data_unchecked(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y);
 	void game_update_and_render(GameOffscreenBuffer* buffer, GameMemory* game_memory, InputState* input_state, float delta_time);
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b);
 	void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods);
@@ -353,104 +341,73 @@ namespace Handmade {
 		GameState* game_state = (GameState*)game_memory->permanent_storage;
 		if (!game_memory->is_initialized) {
 			game_state->player_pos = WorldPosition{
-				.tile_x = 3,
-				.tile_y = 3,
-				// cords of pixels (x, y) relative to current tile inside current tilemap
+				// chunk 0, tile 3
+				.packed_chunk_x = 3,
+				.packed_chunk_y = 3,
+				// cords of pixels (x, y) relative to current tile inside current chunk
 				 .at_x_in_tile = 0.0f, .at_y_in_tile = 0.0f,
 			};
 			game_memory->is_initialized = true;
 		}
 
 
-
-		uint32_t tile_map00[TILE_COUNT_Y][TILE_COUNT_X] =
-		{
-			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
-			{1, 1, 0, 0,  0, 1, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1},
-			{1, 1, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 1, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 0},
-			{1, 1, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 1, 0, 0, 1},
-			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  1, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 0, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1},
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
-		};
-
-		uint32_t tile_map01[TILE_COUNT_Y][TILE_COUNT_X] =
-		{
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
-		};
-		uint32_t tile_map10[TILE_COUNT_Y][TILE_COUNT_X] =
-		{
-			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
-		};
-		uint32_t tile_map11[TILE_COUNT_Y][TILE_COUNT_X] =
-		{
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
-		};
-
-		TileMap tile_maps[2][2];
-		tile_maps[0][0].tiles = (uint32_t*)tile_map00;
-		tile_maps[0][1].tiles = (uint32_t*)tile_map10;
-		tile_maps[1][0].tiles = (uint32_t*)tile_map01;
-		tile_maps[1][1].tiles = (uint32_t*)tile_map11;
-
 		World world{};
-		world.tile_maps = (TileMap*)tile_maps;
-		world.curr_tile_map = world_get_tilemap(&world, game_state->player_pos.tile_x, game_state->player_pos.tile_y);
-		if (!world.curr_tile_map) {
-			abort();
-		}
 
-		//std::cout << "printing tilemap" << std::endl;
-		for (int i = 0; i < TILE_COUNT_Y; i++) {
-			for (int j = 0; j < TILE_COUNT_X; j++) {
-				//std::cout << world.curr_tile_map->tiles[i * TILE_COUNT_X + j] << " ";
-			}
-			//std::cout << "\n";
-		}
+		uint32_t tiles[CHUNK_DIM][CHUNK_DIM] =
+		{
+			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+			{1, 1, 0, 0,  0, 1, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 1, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  1, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 1, 1,  1, 0, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
 
-		//uint32_t test_bit = uint32_t(0xABCDEF03);
-		//uint32_t some_tile = test_bit & (255);
-		//uint32_t some_tilemap = test_bit >> unsigned char(8);
+			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+		};
+
+
+
+		WorldChunk world_chunk;
+		world_chunk.tiles = (uint32_t*)tiles;
+		world.chunks = &world_chunk;
+
+		// el problema de tener este ChunkInfo es que al pedo estoy comprimiendo todo en un 32bits si despues lo voy a tener aca. Eso es lo que no entiendo
+		// porque para usar los valores si o si tengo que hacer el computo, y normalmente lo necesito en varios lados a la data. No lo uso en un solo lugar.
+		// Supongo que el sentido de comprimir las cosas es porque si lo descomprimis no lo haces en todos lados... para eso ni lo descomprimis. No entiendo!
+
+		// Conclusion: No tiene sentido por ahora, probablemnte mas tarde cuando se integre en la pipeline general
+
+		ChunkInfo curr_chunk_info = get_chunk_info(&world, game_state->player_pos.packed_chunk_x, game_state->player_pos.packed_chunk_y);
+		WorldChunk curr_chunk = get_chunk(&world, curr_chunk_info.chunk_x, curr_chunk_info.chunk_y);
+
+
 		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 0.3f, 0.0f, 0.0f);
-		for (int i = 0; i < TILE_COUNT_Y; i++) {
-			for (int j = 0; j < TILE_COUNT_X; j++) {
+		for (int i = 0; i < TILE_COUNT_Y + 1; i++) {
+			for (int j = 0; j < TILE_COUNT_X + 3; j++) {
 				draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
-				if (tilemap_get_tile_data_unchecked(&world, world.curr_tile_map, j, i) == 1) {
+				if (get_tile_data_unchecked(&world, curr_chunk, j, i) == 1) {
 					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
 				}
-				if (i == (game_state->player_pos.tile_y & uint32_t(255)) && j == (game_state->player_pos.tile_x & uint32_t(255))) {
+				//if (i == (game_state->player_pos.packed_chunk_y & world.chunk_mask) && j == (game_state->player_pos.packed_chunk_x & world.chunk_mask)) {
+				//	draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
+				//}
+				if (i == curr_chunk_info.tile_y && j == curr_chunk_info.tile_x) {
 					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
 				}
 			}
 		}
 
-		// these are the total width, from the (x, y)
 		float player_height = 1.4f;
 		float player_width = 0.75f * player_height;
 		float player_x = 0;
@@ -473,28 +430,29 @@ namespace Handmade {
 		}
 
 		// Collision handling :
-		// (0, 0) is at the top left corner of the tile. But because the drawing starts at (x, y) and extends down to (x + xoffset, y + yoffset)
-		// because of the way the textures coords are set, I use the top row of the tile to check collisions and I offset it in Y when drawing.
-		WorldPosition top_center_pos = game_state->player_pos;
-		top_center_pos.at_x_in_tile += player_x * delta_time;
-		top_center_pos.at_y_in_tile += player_y * delta_time;
-		top_center_pos = compute_canonical_position_2(&world, top_center_pos);
+		// (0, 0) is at the bottom left corner of the tile. 
+		// because the coordinate system is set to be Y+ up.
+		// TODO(Marcos): recheck this `WorldPosition` variables
+		WorldPosition bottom_center_pos = game_state->player_pos;
+		bottom_center_pos.at_x_in_tile += player_x * delta_time;
+		bottom_center_pos.at_y_in_tile += player_y * delta_time;
+		bottom_center_pos = compute_canonical_position(&world, bottom_center_pos);
 
 
-		WorldPosition top_left_pos = top_center_pos;
-		top_left_pos.at_x_in_tile -= 0.5f * player_width;
-		top_left_pos = compute_canonical_position_2(&world, top_left_pos);
+		WorldPosition bottom_left_pos = bottom_center_pos;
+		bottom_left_pos.at_x_in_tile -= 0.5f * player_width;
+		bottom_left_pos = compute_canonical_position(&world, bottom_left_pos);
 
-		WorldPosition top_right_pos = top_center_pos;
-		top_right_pos.at_x_in_tile += 0.5f * player_width;
-		top_right_pos = compute_canonical_position_2(&world, top_right_pos);
+		WorldPosition bottom_right_pos = bottom_center_pos;
+		bottom_right_pos.at_x_in_tile += 0.5f * player_width;
+		bottom_right_pos = compute_canonical_position(&world, bottom_right_pos);
 
 
-		if (world_is_point_empty_2(&world, top_left_pos) &&
-			world_is_point_empty_2(&world, top_center_pos) &&
-			world_is_point_empty_2(&world, top_right_pos))
+		if (world_is_point_empty(&world, bottom_left_pos) &&
+			world_is_point_empty(&world, bottom_center_pos) &&
+			world_is_point_empty(&world, bottom_right_pos))
 		{
-			game_state->player_pos = top_center_pos;
+			game_state->player_pos = bottom_center_pos;
 		}
 
 
@@ -502,10 +460,10 @@ namespace Handmade {
 		float player_g = 1.0f;
 		float player_b = 0.0f;
 		float player_left = world.upper_left_x +
-			(world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + (game_state->player_pos.tile_x & uint32_t(255)) * world.tile_width -
+			(world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + (game_state->player_pos.packed_chunk_x & uint32_t(255)) * world.tile_width -
 			0.5f * world.meters_to_pixels * player_width;
 		float player_right = world.upper_left_y +
-			(world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + (game_state->player_pos.tile_y & uint32_t(255)) * world.tile_height;
+			(world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + (game_state->player_pos.packed_chunk_y & uint32_t(255)) * world.tile_height;
 
 
 		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
@@ -515,20 +473,15 @@ namespace Handmade {
 			player_r, player_g, player_b);
 	}
 
-	// x: relative to tilemap
-	// y: relative to tilemap
-	bool tilemap_is_point_empty(World* world, TileMap* tile_map, float x, float y) {
-		bool is_valid = false;
-		if (tile_map) {
-			if (x >= 0 && x < TILE_COUNT_X && y >= 0 && y < TILE_COUNT_Y) {
-				is_valid = tilemap_get_tile_data_unchecked(world, tile_map, x, y) == 0;
-			}
-		}
-		return is_valid;
+
+	WorldChunk get_chunk(World* world, uint32_t chunk_x, uint32_t chunk_y) {
+		WorldChunk result = world->chunks[chunk_y * world->chunk_dim + chunk_x];
+		return result;
 	}
 
-	uint32_t tilemap_get_tile_data_unchecked(World* world, TileMap* tile_map, int32_t x, int32_t y) {
-		return tile_map->tiles[y * world->tile_count_x + x];
+	uint32_t get_tile_data_unchecked(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y) {
+		uint32_t result = chunk.tiles[tile_y * world->chunk_dim + tile_x];
+		return result;
 	}
 
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b) {
@@ -556,27 +509,43 @@ namespace Handmade {
 		}
 	}
 
-	TileMap* world_get_tilemap(World* world, int32_t tile_x, int32_t tile_y) {
-		// TODO(Marcos): separate this into a different struct. Could be private but probably not
-		int32_t tile_map_x = tile_x >> unsigned char(8);
-		int32_t tile_map_y = tile_y >> unsigned char(8);
-		TileMap* tile_map = nullptr;
-		if (tile_map_x >= 0 && tile_map_x < world->tile_map_count_x && tile_map_y >= 0 && tile_map_y < world->tile_map_count_y) {
-			tile_map = &world->tile_maps[tile_map_y * world->tile_map_count_x + tile_map_x];
-		}
-		return tile_map;
+	ChunkInfo get_chunk_info(World* world, int32_t chunk_info_x, int32_t chunk_info_y) {
+		// TODO(Marcos): See differences between the datatypes of the shifts and masks
+		//uint32_t chunk_x = chunk_info_x >> unsigned char(8);
+		//uint32_t chunk_y = chunk_info_y >> unsigned char(8);
+
+		//uint32_t tile_x = chunk_info_x & 0xFF;
+		//uint32_t tile_y = chunk_info_y & 0xFF;
+
+		uint32_t chunk_x = chunk_info_x >> world->chunk_shift;
+		uint32_t chunk_y = chunk_info_y >> world->chunk_shift;
+
+		uint32_t tile_x = chunk_info_x & world->chunk_mask;
+		uint32_t tile_y = chunk_info_y & world->chunk_mask;
+
+		// Note(Marcos): It's just WorldPosition decompressed. (seems useless!)
+		// I don't understand why have chunk and tile inside 32 bits if i need to compute the chunk and tile everytime.
+
+		return ChunkInfo{
+			.chunk_x = chunk_x,
+			.chunk_y = chunk_y,
+
+			.tile_x = tile_x,
+			.tile_y = tile_y,
+		};
 	}
 
-	void recanonicalize_coord(World* world, uint32_t tile_count, uint32_t* tile, float* tile_rel) {
+	void recanonicalize_coord(World* world, uint32_t* tile, float* tile_rel) {
 		int32_t tile_offset = floor_f32_to_int32(*tile_rel / world->tile_side_in_meters);
-		int32_t temp_tile = *tile & uint32_t(255);
-		int32_t temp_tilemap = *tile >> unsigned char(8);
-		temp_tile += tile_offset;
 		*tile_rel -= tile_offset * world->tile_side_in_meters;
 		if (*tile_rel < 0 || *tile_rel >= world->tile_side_in_meters) {
 			abort();
 		}
-		//*tilemap += floor_f32_to_int32(*tile / tile_count );
+		*tile += tile_offset;
+
+		// Note(Marcos): he said: all of these shouldn't go
+		// Why? I think if matters but not now as not anytime soon i will be going out of the chunk.
+		/*
 		if (temp_tile >= tile_count) {
 			temp_tilemap += 1;
 			temp_tile = tile_count - *tile;
@@ -588,27 +557,26 @@ namespace Handmade {
 		if (temp_tilemap < 0 || temp_tilemap >= 2) {
 			abort();
 		}
-		*tile = (temp_tilemap << unsigned char(8)) | temp_tile;
+		*/
+		// Note(Marcos): this is not needed as `world->tile_side_in_meters` fits in 8 bits.
+		// *tile = (temp_tilemap << unsigned char(8)) | temp_tile;
 	}
 
-	WorldPosition compute_canonical_position_2(World* world, WorldPosition pos) {
+	WorldPosition compute_canonical_position(World* world, WorldPosition pos) {
 		WorldPosition result = pos;
 
-		recanonicalize_coord(world, world->tile_count_x, &result.tile_x, &result.at_x_in_tile);
-		recanonicalize_coord(world, world->tile_count_y, &result.tile_y, &result.at_y_in_tile);
+		recanonicalize_coord(world, &result.packed_chunk_x, &result.at_x_in_tile);
+		recanonicalize_coord(world, &result.packed_chunk_y, &result.at_y_in_tile);
 
 		return result;
 	}
 
-	bool world_is_point_empty_2(World* world, WorldPosition position) {
+	bool world_is_point_empty(World* world, WorldPosition position) {
 		bool is_valid = false;
 
-		TileMap* tile_map = world_get_tilemap(world, position.tile_x, position.tile_y);
-		if (!tile_map) {
-			return false;
-		}
-
-		is_valid = tilemap_is_point_empty(world, tile_map, position.tile_x, position.tile_y);
+		ChunkInfo chunk_info = get_chunk_info(world, position.packed_chunk_x, position.packed_chunk_y);
+		WorldChunk chunk = get_chunk(world, chunk_info.chunk_x, chunk_info.chunk_y);
+		is_valid = get_tile_data_unchecked(world, chunk, chunk_info.tile_x, chunk_info.tile_y) == 0;
 		return is_valid;
 	}
 
