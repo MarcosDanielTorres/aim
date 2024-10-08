@@ -130,8 +130,10 @@ struct WorldPosition {
 };
 
 struct Screen {
-	float viewport_tiles_x;
-	float viewport_tiles_y;
+	float viewport_width_tiles;
+	float viewport_height_tiles;
+	float viewport_width_pixels;
+	float viewport_height_pixels;
 };
 
 struct GameState {
@@ -359,12 +361,13 @@ namespace Handmade {
 		World world{};
 
 		Screen screen{};
-		screen.viewport_tiles_x = round_f32_to_int32(1280.0f / world.tile_width);
-		screen.viewport_tiles_y = round_f32_to_int32(720.0f / world.tile_height);
-
+		screen.viewport_width_tiles = round_f32_to_int32(1280.0f / world.tile_width);
+		screen.viewport_height_tiles = round_f32_to_int32(720.0f / world.tile_height);
 		// TODO(Marcos): Fix so I'm able to render fractions of a tile at the edges of the screen.
 		//screen.viewport_tiles_x = 1280.0f / world.tile_width;
 		//screen.viewport_tiles_y = 720.0f / world.tile_height;
+		screen.viewport_width_pixels = 1280.0f;
+		screen.viewport_height_pixels = 720.0f;
 
 
 		uint32_t tiles[CHUNK_DIM][CHUNK_DIM] =
@@ -399,7 +402,6 @@ namespace Handmade {
 		// el problema de tener este ChunkInfo es que al pedo estoy comprimiendo todo en un 32bits si despues lo voy a tener aca. Eso es lo que no entiendo
 		// porque para usar los valores si o si tengo que hacer el computo, y normalmente lo necesito en varios lados a la data. No lo uso en un solo lugar.
 		// Supongo que el sentido de comprimir las cosas es porque si lo descomprimis no lo haces en todos lados... para eso ni lo descomprimis. No entiendo!
-
 		// Conclusion: No tiene sentido por ahora, probablemnte mas tarde cuando se integre en la pipeline general
 
 		ChunkInfo curr_chunk_info = get_chunk_info(&world, game_state->player_pos.packed_chunk_x, game_state->player_pos.packed_chunk_y);
@@ -414,47 +416,42 @@ namespace Handmade {
 		float player_centered_at_tile_x = 10;
 		float player_centered_at_tile_y = 6;
 
-		// Not sure what to do with these yet. Prolly remove
-		float tile_offset_x = game_state->player_pos.packed_chunk_x * world.tile_width + game_state->player_pos.at_x_in_tile * world.meters_to_pixels;
-		float tile_offset_y = game_state->player_pos.packed_chunk_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
-		bool scrolling = true;
+		bool scrolling_x = true;
+		bool scrolling_y = true;
 
 
-		// TODO(Marcos): hay que agregar que cuando pase de scrolling -> no scrolling solo fije el axis que deja de scrollear. El scrolling es por axis, por ahora es general.
-		// `scrolling_x` y `scrolling_y`
-		// TODO(Marcos); No funciona para x > width
+		// TODO(Marcos); No funciona para x > width ni para y > height
 		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 0.3f, 0.0f, 0.0f);
-		for (int i = 0; i < screen.viewport_tiles_y; i++) {
-			for (int j = 0; j < screen.viewport_tiles_x; j++) {
+		for (int i = 0; i < screen.viewport_height_tiles; i++) {
+			for (int j = 0; j < screen.viewport_width_tiles; j++) {
 				float x = j + game_state->player_pos.packed_chunk_x - player_centered_at_tile_x;
 				float y = i + game_state->player_pos.packed_chunk_y - player_centered_at_tile_y;
-				if (x < 0 || y < 0 || x > 1280 || y > 720) {
-					scrolling = false;
+
+				if (x < 0 || x > screen.viewport_width_pixels) {
+					scrolling_x = false;
 					player_centered_at_tile_x = x + player_centered_at_tile_x;
-					//x = j;
-
-					//player_centered_at_tile_x = x + player_centered_at_tile_x;
-					//x = j + game_state->player_pos.packed_chunk_x - player_centered_at_tile_x + game_state->player_pos.at_x_in_tile * world.meters_to_pixels;
+					x = j;
 				}
 
+				if (y < 0 || y > screen.viewport_height_pixels) {
+					scrolling_y = false;
+					player_centered_at_tile_y = y + player_centered_at_tile_y;
+					y = i;
 
-				if (scrolling) {
-					draw_rect(buffer, j * world.tile_width - game_state->player_pos.at_x_in_tile * world.meters_to_pixels, i * world.tile_height - game_state->player_pos.at_y_in_tile * world.meters_to_pixels, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
-					if (get_tile_data_unchecked(&world, curr_chunk, x, y) == 1) {
-						draw_rect(buffer, j * world.tile_width - game_state->player_pos.at_x_in_tile * world.meters_to_pixels, i * world.tile_height - game_state->player_pos.at_y_in_tile * world.meters_to_pixels, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
-					}
-					if (y == curr_chunk_info.tile_y && x == curr_chunk_info.tile_x) {
-						draw_rect(buffer, j * world.tile_width - game_state->player_pos.at_x_in_tile * world.meters_to_pixels, i * world.tile_height - game_state->player_pos.at_y_in_tile * world.meters_to_pixels, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
-					}
 				}
-				else {
-					draw_rect(buffer, j * world.tile_width, i * world.tile_height, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
-					if (get_tile_data_unchecked(&world, curr_chunk, j, i) == 1) {
-						draw_rect(buffer, j * world.tile_width, i * world.tile_height, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
-					}
-					if (i == curr_chunk_info.tile_y && j == curr_chunk_info.tile_x) {
-						draw_rect(buffer, j * world.tile_width, i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
-					}
+				float player_draw_x = j * world.tile_width;
+				float player_draw_y = i * world.tile_height;
+
+				if (scrolling_x) { player_draw_x -= game_state->player_pos.at_x_in_tile * world.meters_to_pixels; }
+				if (scrolling_y) { player_draw_y -= game_state->player_pos.at_y_in_tile * world.meters_to_pixels; }
+
+
+				draw_rect(buffer, player_draw_x, player_draw_y, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
+				if (get_tile_data_unchecked(&world, curr_chunk, x, y) == 1) {
+					draw_rect(buffer, player_draw_x, player_draw_y, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
+				}
+				if (y == curr_chunk_info.tile_y && x == curr_chunk_info.tile_x) {
+					draw_rect(buffer, player_draw_x, player_draw_y, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
 				}
 			}
 		}
@@ -516,15 +513,20 @@ namespace Handmade {
 		float player_right;
 		//float player_left = player_centered_at_tile_x * world.tile_width + game_state->player_pos.at_x_in_tile * world.meters_to_pixels - 0.5 * player_width * world.meters_to_pixels;
 		//float player_right = player_centered_at_tile_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
-		if (scrolling) {
+
+		if (scrolling_x) {
 			player_left = player_centered_at_tile_x * world.tile_width - 0.5f * player_width * world.meters_to_pixels;
-			player_right = player_centered_at_tile_y * world.tile_height;
 		}
 		else {
 			player_left = game_state->player_pos.packed_chunk_x * world.tile_width + game_state->player_pos.at_x_in_tile * world.meters_to_pixels - 0.5f * player_width * world.meters_to_pixels;
-			player_right = game_state->player_pos.packed_chunk_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
 		}
 
+		if (scrolling_y) {
+			player_right = player_centered_at_tile_y * world.tile_height;
+		}
+		else {
+			player_right = game_state->player_pos.packed_chunk_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
+		}
 
 		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
 		draw_rect(buffer,
