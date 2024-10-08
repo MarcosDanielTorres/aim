@@ -136,8 +136,15 @@ struct Screen {
 	float viewport_height_pixels;
 };
 
+struct Arena {
+	size_t base;
+	size_t len;
+	size_t cap;
+};
+
 struct GameState {
 	WorldPosition player_pos;
+	Arena* world_arena;
 };
 
 struct WorldChunk {
@@ -161,6 +168,13 @@ struct World {
 };
 
 
+struct ChunkResult {
+	union {
+		const char* err_msg;
+		ChunkInfo chunk_info;
+	};
+};
+
 
 namespace Handmade {
 	// TODO(Marcos): y si saco toda esta mierda de aca y la meto en la struct y listo? como member functions
@@ -168,7 +182,7 @@ namespace Handmade {
 
 	// fordecls
 	WorldPosition compute_canonical_position(World* world, WorldPosition position);
-	ChunkInfo get_chunk_info(World* world, int32_t chunk_info_x, int32_t chunk_info_y);
+	ChunkResult get_chunk_info(World* world, int32_t chunk_info_x, int32_t chunk_info_y);
 	bool world_is_point_empty(World* world, WorldPosition position);
 	WorldChunk get_chunk(World* world, uint32_t chunk_x, uint32_t chunk_y);
 	uint32_t get_tile_data_unchecked(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y);
@@ -332,11 +346,11 @@ namespace Handmade {
 	}
 
 	int32_t round_f32_to_int32(float num) {
-		return int32_t(num + 0.5);
+		return int32_t(roundf(num));
 	}
 
 	int32_t round_f32_to_uint32(float num) {
-		return uint32_t(num + 0.5);
+		return uint32_t(roundf(num));
 	}
 
 	void game_update_and_render(GameOffscreenBuffer* buffer, GameMemory* game_memory, InputState* input_state, float delta_time) {
@@ -370,28 +384,41 @@ namespace Handmade {
 		screen.viewport_height_pixels = 720.0f;
 
 
-		uint32_t tiles[CHUNK_DIM][CHUNK_DIM] =
-		{
-			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
-			{1, 1, 0, 0,  0, 1, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 1, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  1, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 0, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+		//uint32_t tiles[CHUNK_DIM][CHUNK_DIM] =
+		//{
+		//	{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+		//	{1, 1, 0, 0,  0, 1, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 1, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  1, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 1, 1, 1,  1, 0, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
 
-			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
-		};
+		//	{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+		//	{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
+		//};
+
+		uint32_t tiles[CHUNK_DIM][CHUNK_DIM]{};
+		for (int i = 0; i < CHUNK_DIM; i++) {
+			for (int j = 0; j < CHUNK_DIM; j++) {
+
+				if (i % 8 == 0 || j % 16 == 0) {
+					tiles[i][j] = 1;
+				}
+				if (j % 8 == 0) {
+					tiles[i][j] = 0;
+				}
+			}
+		}
 
 
 
@@ -404,7 +431,13 @@ namespace Handmade {
 		// Supongo que el sentido de comprimir las cosas es porque si lo descomprimis no lo haces en todos lados... para eso ni lo descomprimis. No entiendo!
 		// Conclusion: No tiene sentido por ahora, probablemnte mas tarde cuando se integre en la pipeline general
 
-		ChunkInfo curr_chunk_info = get_chunk_info(&world, game_state->player_pos.packed_chunk_x, game_state->player_pos.packed_chunk_y);
+		ChunkResult curr_chunk_result = get_chunk_info(&world, game_state->player_pos.packed_chunk_x, game_state->player_pos.packed_chunk_y);
+
+		if (curr_chunk_result.err_msg != nullptr) {
+			std::cout << "Error recibido: " << curr_chunk_result.err_msg << std::endl;
+			abort();
+		}
+		ChunkInfo curr_chunk_info = curr_chunk_result.chunk_info;
 		WorldChunk curr_chunk = get_chunk(&world, curr_chunk_info.chunk_x, curr_chunk_info.chunk_y);
 
 		// TODO(Marcos): All the player related info should go in the GameState
@@ -459,7 +492,7 @@ namespace Handmade {
 		float player_y = 0;
 
 		if (input_state->is_key_pressed(keys::left_shift)) {
-			player_speed *= 3.0f;
+			player_speed *= 20.0f;
 		}
 
 		if (input_state->is_key_pressed(keys::w)) {
@@ -528,7 +561,8 @@ namespace Handmade {
 			player_right = game_state->player_pos.packed_chunk_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
 		}
 
-		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
+		//std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
+		std::cout << "Player position in tiles: (" << game_state->player_pos.packed_chunk_x << ", " << game_state->player_pos.packed_chunk_y << ")\n";
 		draw_rect(buffer,
 			player_left, player_right,
 			world.meters_to_pixels * player_width, world.meters_to_pixels * player_height,
@@ -537,6 +571,11 @@ namespace Handmade {
 
 
 	WorldChunk get_chunk(World* world, uint32_t chunk_x, uint32_t chunk_y) {
+		if (chunk_x != 0 || chunk_y != 0) {
+			// TODO(Marcos): Sacar estos aborts de mierda y crear mis propios asserts
+			std::cout << "Estos aborts la verdad que son terrible poronga, te marcan la linea que no es hijos de mil puta \n";
+			abort();
+		}
 		WorldChunk result = world->chunks[chunk_y * world->chunk_dim + chunk_x];
 		return result;
 	}
@@ -602,7 +641,10 @@ namespace Handmade {
 		}
 	}
 
-	ChunkInfo get_chunk_info(World* world, int32_t chunk_info_x, int32_t chunk_info_y) {
+
+
+	ChunkResult get_chunk_info(World* world, int32_t chunk_info_x, int32_t chunk_info_y) {
+		ChunkResult result;
 		// TODO(Marcos): See differences between the datatypes of the shifts and masks
 		//uint32_t chunk_x = chunk_info_x >> unsigned char(8);
 		//uint32_t chunk_y = chunk_info_y >> unsigned char(8);
@@ -610,22 +652,32 @@ namespace Handmade {
 		//uint32_t tile_x = chunk_info_x & 0xFF;
 		//uint32_t tile_y = chunk_info_y & 0xFF;
 
+
 		uint32_t chunk_x = chunk_info_x >> world->chunk_shift;
 		uint32_t chunk_y = chunk_info_y >> world->chunk_shift;
 
 		uint32_t tile_x = chunk_info_x & world->chunk_mask;
 		uint32_t tile_y = chunk_info_y & world->chunk_mask;
 
-		// Note(Marcos): It's just WorldPosition decompressed. (seems useless!)
-		// I don't understand why have chunk and tile inside 32 bits if i need to compute the chunk and tile everytime.
+		if (chunk_x < 0 || chunk_x >= world->chunk_dim) {
+			result.err_msg = "Te fuiste a la mierda del mapa!";
+			return result;
+		}
 
-		return ChunkInfo{
+		ChunkInfo chunk_info = ChunkInfo{
 			.chunk_x = chunk_x,
 			.chunk_y = chunk_y,
 
 			.tile_x = tile_x,
 			.tile_y = tile_y,
 		};
+		result.chunk_info = chunk_info;
+		result.err_msg = nullptr;
+
+		// Note(Marcos): It's just WorldPosition decompressed. (seems useless!)
+		// I don't understand why have chunk and tile inside 32 bits if i need to compute the chunk and tile everytime.
+
+		return result;
 	}
 
 	void recanonicalize_coord(World* world, uint32_t* tile, float* tile_rel) {
@@ -667,9 +719,13 @@ namespace Handmade {
 	bool world_is_point_empty(World* world, WorldPosition position) {
 		bool is_valid = false;
 
-		ChunkInfo chunk_info = get_chunk_info(world, position.packed_chunk_x, position.packed_chunk_y);
-		WorldChunk chunk = get_chunk(world, chunk_info.chunk_x, chunk_info.chunk_y);
-		is_valid = get_tile_data_unchecked(world, chunk, chunk_info.tile_x, chunk_info.tile_y) == 0;
+		ChunkResult chunk_result = get_chunk_info(world, position.packed_chunk_x, position.packed_chunk_y);
+		if (chunk_result.err_msg != nullptr) {
+			std::cout << "Error recibido: " << chunk_result.err_msg << std::endl;
+			return false;
+		}
+		WorldChunk chunk = get_chunk(world, chunk_result.chunk_info.chunk_x, chunk_result.chunk_info.chunk_y);
+		is_valid = get_tile_data(world, chunk, chunk_result.chunk_info.tile_x, chunk_result.chunk_info.tile_y) == 0;
 		return is_valid;
 	}
 
