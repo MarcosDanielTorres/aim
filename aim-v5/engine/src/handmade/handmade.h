@@ -28,9 +28,6 @@
 // buffer size == screen view == screen resolution
 // screen resolution will define tile_count
 
-#define TILE_COUNT_Y 9
-#define TILE_COUNT_X 17
-
 enum keys {
 
 	i = 73,
@@ -59,6 +56,7 @@ enum keys {
 	arrow_left = 263,
 	arrow_down = 264,
 	arrow_up = 265,
+	left_shift = 340,
 	space = 32,
 };
 
@@ -131,6 +129,11 @@ struct WorldPosition {
 	float at_x_in_tile, at_y_in_tile;
 };
 
+struct Screen {
+	float viewport_tiles_x;
+	float viewport_tiles_y;
+};
+
 struct GameState {
 	WorldPosition player_pos;
 };
@@ -151,7 +154,7 @@ struct World {
 	uint32_t chunk_dim{ 256 };
 	// TODO(Marcos): crear funciones porque no es intuitivo que mierda hacen 
 	uint32_t chunk_shift{ 8 };
-	uint32_t chunk_mask { (uint32_t(1) << chunk_shift) - uint32_t(1)};
+	uint32_t chunk_mask{ (uint32_t(1) << chunk_shift) - uint32_t(1) };
 	WorldChunk* chunks;
 };
 
@@ -167,6 +170,7 @@ namespace Handmade {
 	bool world_is_point_empty(World* world, WorldPosition position);
 	WorldChunk get_chunk(World* world, uint32_t chunk_x, uint32_t chunk_y);
 	uint32_t get_tile_data_unchecked(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y);
+	uint32_t get_tile_data(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y);
 	void game_update_and_render(GameOffscreenBuffer* buffer, GameMemory* game_memory, InputState* input_state, float delta_time);
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b);
 	void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods);
@@ -342,26 +346,36 @@ namespace Handmade {
 		if (!game_memory->is_initialized) {
 			game_state->player_pos = WorldPosition{
 				// chunk 0, tile 3
-				.packed_chunk_x = 3,
-				.packed_chunk_y = 3,
+				.packed_chunk_x = 10,
+				.packed_chunk_y = 6,
 				// cords of pixels (x, y) relative to current tile inside current chunk
 				 .at_x_in_tile = 0.0f, .at_y_in_tile = 0.0f,
 			};
+
 			game_memory->is_initialized = true;
 		}
 
 
 		World world{};
 
+		Screen screen{};
+		screen.viewport_tiles_x = round_f32_to_int32(1280.0f / world.tile_width);
+		screen.viewport_tiles_y = round_f32_to_int32(720.0f / world.tile_height);
+
+		// TODO(Marcos): Fix so I'm able to render fractions of a tile at the edges of the screen.
+		//screen.viewport_tiles_x = 1280.0f / world.tile_width;
+		//screen.viewport_tiles_y = 720.0f / world.tile_height;
+
+
 		uint32_t tiles[CHUNK_DIM][CHUNK_DIM] =
 		{
 			{1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, 1},
 			{1, 1, 0, 0,  0, 1, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 1, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 1, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
-			{1, 0, 0, 0,  0, 1, 0, 0,  1, 0, 0, 0,  1, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 1, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0,    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
+			{1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 0, 0,  1, 0, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
 			{1, 1, 1, 1,  1, 0, 0, 0,  0, 0, 0, 0,  0, 1, 0, 0, 1,    1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 1},
 			{1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1,    1, 1, 1, 1,  1, 1, 1, 1,  0, 1, 1, 1,  1, 1, 1, 1, 1},
 
@@ -391,42 +405,81 @@ namespace Handmade {
 		ChunkInfo curr_chunk_info = get_chunk_info(&world, game_state->player_pos.packed_chunk_x, game_state->player_pos.packed_chunk_y);
 		WorldChunk curr_chunk = get_chunk(&world, curr_chunk_info.chunk_x, curr_chunk_info.chunk_y);
 
+		// TODO(Marcos): All the player related info should go in the GameState
+		float player_height = 1.4f;
+		float player_width = 0.75f * player_height;
+		float player_speed = 2.0f;
 
+		// Only for scrolling based gameplay
+		float player_centered_at_tile_x = 10;
+		float player_centered_at_tile_y = 6;
+
+		// Not sure what to do with these yet. Prolly remove
+		float tile_offset_x = game_state->player_pos.packed_chunk_x * world.tile_width + game_state->player_pos.at_x_in_tile * world.meters_to_pixels;
+		float tile_offset_y = game_state->player_pos.packed_chunk_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
+		bool scrolling = true;
+
+
+		// TODO(Marcos): hay que agregar que cuando pase de scrolling -> no scrolling solo fije el axis que deja de scrollear. El scrolling es por axis, por ahora es general.
+		// `scrolling_x` y `scrolling_y`
+		// TODO(Marcos); No funciona para x > width
 		draw_rect(buffer, 0, 0, buffer->width, buffer->height, 0.3f, 0.0f, 0.0f);
-		for (int i = 0; i < TILE_COUNT_Y + 1; i++) {
-			for (int j = 0; j < TILE_COUNT_X + 3; j++) {
-				draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
-				if (get_tile_data_unchecked(&world, curr_chunk, j, i) == 1) {
-					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
+		for (int i = 0; i < screen.viewport_tiles_y; i++) {
+			for (int j = 0; j < screen.viewport_tiles_x; j++) {
+				float x = j + game_state->player_pos.packed_chunk_x - player_centered_at_tile_x;
+				float y = i + game_state->player_pos.packed_chunk_y - player_centered_at_tile_y;
+				if (x < 0 || y < 0 || x > 1280 || y > 720) {
+					scrolling = false;
+					player_centered_at_tile_x = x + player_centered_at_tile_x;
+					//x = j;
+
+					//player_centered_at_tile_x = x + player_centered_at_tile_x;
+					//x = j + game_state->player_pos.packed_chunk_x - player_centered_at_tile_x + game_state->player_pos.at_x_in_tile * world.meters_to_pixels;
 				}
-				//if (i == (game_state->player_pos.packed_chunk_y & world.chunk_mask) && j == (game_state->player_pos.packed_chunk_x & world.chunk_mask)) {
-				//	draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
-				//}
-				if (i == curr_chunk_info.tile_y && j == curr_chunk_info.tile_x) {
-					draw_rect(buffer, world.upper_left_x + j * world.tile_width, world.upper_left_y + i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
+
+
+				if (scrolling) {
+					draw_rect(buffer, j * world.tile_width - game_state->player_pos.at_x_in_tile * world.meters_to_pixels, i * world.tile_height - game_state->player_pos.at_y_in_tile * world.meters_to_pixels, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
+					if (get_tile_data_unchecked(&world, curr_chunk, x, y) == 1) {
+						draw_rect(buffer, j * world.tile_width - game_state->player_pos.at_x_in_tile * world.meters_to_pixels, i * world.tile_height - game_state->player_pos.at_y_in_tile * world.meters_to_pixels, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
+					}
+					if (y == curr_chunk_info.tile_y && x == curr_chunk_info.tile_x) {
+						draw_rect(buffer, j * world.tile_width - game_state->player_pos.at_x_in_tile * world.meters_to_pixels, i * world.tile_height - game_state->player_pos.at_y_in_tile * world.meters_to_pixels, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
+					}
+				}
+				else {
+					draw_rect(buffer, j * world.tile_width, i * world.tile_height, world.tile_width, world.tile_height, 0.5f, 0.5f, 0.5f);
+					if (get_tile_data_unchecked(&world, curr_chunk, j, i) == 1) {
+						draw_rect(buffer, j * world.tile_width, i * world.tile_height, world.tile_width, world.tile_height, 1.0f, 1.0f, 1.0f);
+					}
+					if (i == curr_chunk_info.tile_y && j == curr_chunk_info.tile_x) {
+						draw_rect(buffer, j * world.tile_width, i * world.tile_height, world.tile_width, world.tile_height, 0.0f, 1.0f, 1.0f);
+					}
 				}
 			}
 		}
-
-		float player_height = 1.4f;
-		float player_width = 0.75f * player_height;
 		float player_x = 0;
 		float player_y = 0;
+
+		if (input_state->is_key_pressed(keys::left_shift)) {
+			player_speed *= 3.0f;
+		}
+
 		if (input_state->is_key_pressed(keys::w)) {
-			player_y += 2.0f;
+			player_y += player_speed;
 		}
 
 		if (input_state->is_key_pressed(keys::s)) {
 
-			player_y -= 2.0f;
+			player_y -= player_speed;
 		}
 		if (input_state->is_key_pressed(keys::a)) {
 
-			player_x -= 2.0f;
+			player_x -= player_speed;
 		}
 
 		if (input_state->is_key_pressed(keys::d)) {
-			player_x += 2.0f;
+			player_x += player_speed;
 		}
 
 		// Collision handling :
@@ -459,11 +512,18 @@ namespace Handmade {
 		float player_r = 1.0f;
 		float player_g = 1.0f;
 		float player_b = 0.0f;
-		float player_left = world.upper_left_x +
-			(world.meters_to_pixels * game_state->player_pos.at_x_in_tile) + (game_state->player_pos.packed_chunk_x & uint32_t(255)) * world.tile_width -
-			0.5f * world.meters_to_pixels * player_width;
-		float player_right = world.upper_left_y +
-			(world.meters_to_pixels * game_state->player_pos.at_y_in_tile) + (game_state->player_pos.packed_chunk_y & uint32_t(255)) * world.tile_height;
+		float player_left;
+		float player_right;
+		//float player_left = player_centered_at_tile_x * world.tile_width + game_state->player_pos.at_x_in_tile * world.meters_to_pixels - 0.5 * player_width * world.meters_to_pixels;
+		//float player_right = player_centered_at_tile_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
+		if (scrolling) {
+			player_left = player_centered_at_tile_x * world.tile_width - 0.5f * player_width * world.meters_to_pixels;
+			player_right = player_centered_at_tile_y * world.tile_height;
+		}
+		else {
+			player_left = game_state->player_pos.packed_chunk_x * world.tile_width + game_state->player_pos.at_x_in_tile * world.meters_to_pixels - 0.5f * player_width * world.meters_to_pixels;
+			player_right = game_state->player_pos.packed_chunk_y * world.tile_height + game_state->player_pos.at_y_in_tile * world.meters_to_pixels;
+		}
 
 
 		std::cout << "Player position: (" << player_left << ", " << player_right << ")\n";
@@ -479,21 +539,51 @@ namespace Handmade {
 		return result;
 	}
 
+	uint32_t get_tile_data(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y) {
+		// empty
+		uint32_t result = 1;
+		if (tile_x >= 0 && tile_x < world->chunk_dim && tile_y >= 0 && tile_y < world->chunk_dim) {
+			result = chunk.tiles[tile_y * world->chunk_dim + tile_x];
+		}
+		return result;
+	}
+
 	uint32_t get_tile_data_unchecked(World* world, WorldChunk chunk, int32_t tile_x, int32_t tile_y) {
 		uint32_t result = chunk.tiles[tile_y * world->chunk_dim + tile_x];
 		return result;
 	}
 
+	// TODO(Marcos): Fix this fucking mess. Half the logic is wrong.
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b) {
 		int32_t x = round_f32_to_int32(f_x);
 		int32_t y = round_f32_to_int32(f_y);
 		int32_t w = round_f32_to_int32(f_w);
 		int32_t h = round_f32_to_int32(f_h);
 
-		if (x < 0) x = 0;
-		if (y < 0) y = 0;
-		if (w > buffer->width)	w = buffer->width;
-		if (h > buffer->height) h = buffer->height;
+		if (x < 0)
+			x = 0;
+		if (y < 0)
+			y = 0;
+		if (w >= buffer->width)
+			w = buffer->width - 1.0f;
+		if (h >= buffer->height)
+			h = buffer->height - 1.0f;
+
+		if (x + w >= buffer->width) {
+			w = buffer->width - x;
+		}
+		if (x + w < 0) {
+			w = x;
+		}
+
+		if (y + h >= buffer->height) {
+			h = buffer->height - y;
+		}
+
+		if (y + h < 0) {
+			h = y;
+		}
+
 
 
 		int32_t* buffer2 = (int32_t*)buffer->memory;
@@ -502,9 +592,10 @@ namespace Handmade {
 			round_f32_to_uint32(g * 255.0f) << 8 |
 			round_f32_to_uint32(b * 255.0f) << 16;
 
-		for (int pixel_y = 719 - y; pixel_y > 719 - y - h; pixel_y--) {
+		for (int pixel_y = buffer->height - 1.0f - y; pixel_y > buffer->height - 1.0f - y - h; pixel_y--) {
 			for (int pixel_x = x; pixel_x < w + x; pixel_x++) {
-				buffer2[buffer->width * pixel_y + pixel_x] = color;
+				int cursed_index = buffer->width * pixel_y + pixel_x;
+				buffer2[cursed_index] = color;
 			}
 		}
 	}
