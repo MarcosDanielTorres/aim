@@ -770,6 +770,47 @@ namespace Handmade {
 	void draw_rect(GameOffscreenBuffer* buffer, float f_x, float f_y, float f_w, float f_h, float r, float g, float b);
 	void keyboard_callback(GLFWwindow* window, int key, int scan_code, int action, int mods);
 
+
+
+	struct PMC {
+		uint32_t id;
+		const wchar_t* name;
+		uint32_t min_interval;
+		uint32_t max_interval;
+	};
+
+	struct Tracer {
+		TRACEHANDLE handle;
+
+		PMC* available_pmcs;
+		uint32_t available_pmcs_len;
+
+		static Tracer init() {
+			Tracer tracer{};
+
+			return tracer;
+		}
+	};
+
+
+
+	void set_pmcs(TRACEHANDLE trace_handle, const PMC* available_pmcs, uint32_t len, const wchar_t** pmc_names) {
+		ULONG* ids = nullptr;
+
+		ULONG pmc_list[] = { 2, 10 };
+		TraceSetInformation(trace_handle, TRACE_INFO_CLASS::TracePmcCounterListInfo, (void*)pmc_list, 2);
+
+#if 1
+		// print `availble_pmcs`
+		printf("Printing PMCS inside `set_pmc`: \n");
+		for (int i = 0; i < len; i++) {
+			printf("ID: %d, Name: %ls, MinInterval: %d, MaxInterval: %d\n", available_pmcs[i].id, available_pmcs[i].name, available_pmcs[i].min_interval, available_pmcs[i].max_interval);
+		}
+#endif
+
+	
+
+
 	static LARGE_INTEGER frequency;
 	int start() {
 		QueryPerformanceFrequency(&frequency);
@@ -913,7 +954,7 @@ namespace Handmade {
 
 		ZeroMemory(properties, sizeof(*properties));
 		properties->Wnode.BufferSize = sizeof(EVENT_TRACE_PROPERTIES) + sizeof(KERNEL_LOGGER_NAME); // NOTE: not sure about this
-		properties->Wnode.Guid = SystemTraceControlGuid; //NOTE: removed, lets see what happens
+		properties->Wnode.Guid = SystemTraceControlGuid;
 		properties->Wnode.ClientContext = 1;
 		properties->Wnode.Flags = WNODE_FLAG_TRACED_GUID; // NOTE: not sure about this
 
@@ -925,7 +966,8 @@ namespace Handmade {
 		properties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
 		// STUDY: one of these flags make it fail
 		//properties->EnableFlags = EVENT_TRACE_FLAG_DRIVER | EVENT_TRACE_FLAG_CSWITCH | EVENT_TRACE_FLAG_PROFILE | EVENT_TRACE_FLAG_PROCESS_COUNTERS;
-		properties->EnableFlags = EVENT_TRACE_FLAG_DRIVER;
+		//properties->EnableFlags = EVENT_TRACE_FLAG_DRIVER;
+		properties->EnableFlags = EVENT_TRACE_FLAG_CSWITCH;
 
 
 		TRACEHANDLE trace_handle;
@@ -936,9 +978,9 @@ namespace Handmade {
 			return result;
 		}
 
-		// TODO: max_pmc_counters son la cantidad maxima seleccionable. Cambiar el nombre
-		ULONG max_pmc_counters{};
-		result = TraceQueryInformation(trace_handle, TRACE_INFO_CLASS::TraceMaxPmcCounterQuery, &max_pmc_counters, sizeof(max_pmc_counters), NULL);
+		// 12 in this machine. Output of: `wpr -pmcsources`
+		ULONG max_selectable_pmc{};
+		result = TraceQueryInformation(trace_handle, TRACE_INFO_CLASS::TraceMaxPmcCounterQuery, &max_selectable_pmc, sizeof(max_selectable_pmc), NULL);
 		if (result != ERROR_SUCCESS) {
 			AIM_FATAL("Jaja anda como el orto esta mierda");
 			abort();
@@ -959,30 +1001,52 @@ namespace Handmade {
 				return result;
 			}
 			PROFILE_SOURCE_INFO* p_src_info;
-			uint32_t hdp = 1;
+			uint32_t number_of_pmc_available = 1;
 			for (p_src_info = source_info; p_src_info->NextEntryOffset != 0;
 				p_src_info = (PROFILE_SOURCE_INFO*)((char*)p_src_info + p_src_info->NextEntryOffset))
 			{
-				hdp++;
+				// this is needed at least as far as I know because there is no way of knowing how many there is
+				// you only know how many you can select. Which in this case is 12. But there are 18 available.
+				number_of_pmc_available++;
 				AIM_INFO("%d\n", p_src_info->Source);
 			}
 
 			AIM_INFO("%d\n", p_src_info->Source);
 
-			struct PMC {
-				uint32_t id;
-				uint32_t min_interval;
-				uint32_t max_interval;
-				char name[30];
-			};
 
-			PMC* available_pmcs = (PMC*)malloc(sizeof(PMC) * hdp);
-			// todo set them with TracePmcCounterListInfo
+			PMC* available_pmcs = (PMC*)malloc(sizeof(PMC) * number_of_pmc_available);
+			PROFILE_SOURCE_INFO* it_p_src_info = source_info;
+			for (int i = 0; i < number_of_pmc_available; i++) {
+				// Get the required size of the buffer to hold the converted string
+				//int size_needed = WideCharToMultiByte(CP_UTF8, 0, it_p_src_info->Description, -1, NULL, 0, NULL, NULL);
+
+				//if (size_needed > 30) {
+				//	printf("Buffer is too small!\n");
+				//	return 1;
+				//}
+
+				// Convert the wchar_t string to a char string
+				//WideCharToMultiByte(CP_UTF8, 0, it_p_src_info->Description, -1, new_pmc.name, sizeof(new_pmc.name), NULL, NULL);
+
+
+				available_pmcs[i] = PMC{
+					.id = it_p_src_info->Source,
+					.name = it_p_src_info->Description,
+					.min_interval = it_p_src_info->MinInterval,
+					.max_interval = it_p_src_info->MaxInterval,
+				};
+
+				it_p_src_info = (PROFILE_SOURCE_INFO*)((char*)it_p_src_info + it_p_src_info->NextEntryOffset);
+			}
+
+			const wchar_t* names[] = { L"Timer", L"CacheMisses" };
+
+			set_pmcs(trace_handle, available_pmcs, number_of_pmc_available, names);
+
 		}
 
 
 		//TraceQueryInformation(trace_handle, TRACE_INFO_CLASS::TraceSystemProfile, NULL, 0, &max_pmc_counters);
-		//TraceSetInformation(trace_result, TRACE_INFO_CLASS::TracePmcCounterListInfo, );
 
 		/////////////// /////////////// /////////////// /////////////// /////////////// ///////////////
 
