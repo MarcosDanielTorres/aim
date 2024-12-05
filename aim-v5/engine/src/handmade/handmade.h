@@ -808,6 +808,7 @@ namespace Handmade {
 		}
 #endif
 
+	}
 	
 
 
@@ -936,7 +937,7 @@ namespace Handmade {
 		buffer.height = height;
 		buffer.memory = buffer_memory;
 
-
+#if 0
 		/////////////// /////////////// /////////////// /////////////// /////////////// ///////////////
 
 		EVENT_TRACE_PROPERTIES* properties = (EVENT_TRACE_PROPERTIES*)malloc(sizeof(EVENT_TRACE_PROPERTIES) + sizeof(KERNEL_LOGGER_NAME));
@@ -1049,6 +1050,7 @@ namespace Handmade {
 		//TraceQueryInformation(trace_handle, TRACE_INFO_CLASS::TraceSystemProfile, NULL, 0, &max_pmc_counters);
 
 		/////////////// /////////////// /////////////// /////////////// /////////////// ///////////////
+#endif
 
 		while (!glfwWindowShouldClose(window))
 		{
@@ -1385,8 +1387,6 @@ namespace Handmade {
 		if (y + h < 0) {
 			h = y;
 		}
-
-
 
 		int32_t* buffer2 = (int32_t*)buffer->memory;
 

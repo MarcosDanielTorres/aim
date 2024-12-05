@@ -1,4 +1,3 @@
-#define HANDMADE
 #ifdef HANDMADE
 #include "handmade/handmade.h"
 int main() {
@@ -426,7 +425,7 @@ float rifle_scale(0.5f);
 // manny
 glm::vec3 manny_pos(-2.2f, 0.0f, 0.0f);
 glm::vec3 manny_rot(0.0f, 0.0f, 0.0f);
-float manny_scale(0.5f);
+float manny_scale(0.07f);
 
 // model
 glm::vec3 floor_pos(0.0f, 0.0f, -2.2f);
@@ -2459,6 +2458,7 @@ void load_assimp_anim(std::string path) {
 		std::cout << "Animation name: " << scene->mAnimations[i]->mName.C_Str() << std::endl;
 	}
 }
+#if 0
 void render_assimp_node2(AssimpNode* node, Shader* skinning_shader, Shader* regular_shader) {
 	if (node->mesh) {
 		for (const auto& mesh : node->mesh->meshes) {
@@ -2474,6 +2474,7 @@ void render_assimp_node2(AssimpNode* node, Shader* skinning_shader, Shader* regu
 				}
 				glm::mat4 base_model_mat =
 					glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)) *
+					//glm::mat4_cast(manny_rot) *
 					glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
 				skinning_shader->setMat4("model", base_model_mat);
 
@@ -2505,6 +2506,7 @@ void render_assimp_node2(AssimpNode* node, Shader* skinning_shader, Shader* regu
 		render_assimp_node2(child, skinning_shader, regular_shader);
 	}
 }
+#endif
 
 
 
@@ -2522,10 +2524,11 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 			skinning_shader->use();
 			skinning_shader->setMat4("model", glm::mat4(1.0f));
 
-
-
 			if (node->name == "SM_AssaultRifle_Magazine") {
-				skinning_shader->setMat4("model", glm::mat4(1.0f));
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
+				// el grip no es necesario porque justo es la identity
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
 			}
 
 			if (node->name == "SM_AssaultRifle_Casing") {
@@ -2538,48 +2541,43 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 
 			if (node->name == "SK_AssaultRifle") {
 				glUseProgram(skinning_shader_id);
-				skinning_shader->setMat4("model", glm::mat4(1.0f));
-			}
-			glUseProgram(skinning_shader_id);
 
-			if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_Manny_Arms")
-				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
-			else
 				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
-
-			if (node->name == "SK_Manny_Arms") {
-				glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-				glm::quat rot = qy * qx * qz; // Specify order of rotations here
-
-				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
-					* glm::mat4_cast(rot) // this line should be commented out when loading from gltf
-					* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
-				skinning_shader->setMat4("model", model);
-				manny_world_transform = model * node->transform;
-				for (int i = 0; i < manny_transforms.size(); ++i)
-				{
-					skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", manny_transforms[i]);
-				}
-			}
-
-			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
-			if (node->name == "SK_AssaultRifle") {
-
-				AssimpBoneInfo grip = skeletons[2].m_BoneInfoMap["Grip"];
+				AssimpBoneInfo _grip = skeletons[2].m_BoneInfoMap["Grip"];
 				// TODO ahora yo estoy modificando el transform del nodo SK_AssaultRifle pero lo que deberia modificar es el root bone si es que es skinned. En este caso
 				// el grip bone. Esto necesita mas planning.  Unreal engine parece que lo mappea asi no mas, no al grip pero al nodo. aunque seguro se pueda las dos
 				assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
 				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
+			}
+			glUseProgram(skinning_shader_id);
 
+			if (node->name == "SK_Manny_Arms") {
+				// TODO: this should be embeded inside node->transform. So:
+				// if (node->name == "SK_Manny_Arms") node->transform = glm::mat4_cast(correction_rot) * node->transform;
+				glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat correction_rot = qy * qx * qz; // Specify order of rotations here
+
+				glm::quat qx1 = glm::angleAxis(glm::radians(manny_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy1 = glm::angleAxis(glm::radians(manny_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz1 = glm::angleAxis(glm::radians(manny_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot1 = qy1 * qx1 * qz1; // Specify order of rotations here
+
+
+				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
+					* glm::mat4_cast(rot1)
+					* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+				skinning_shader->setMat4("model", model);
+				manny_world_transform = model * glm::mat4_cast(correction_rot) * node->transform;
+				for (int i = 0; i < manny_transforms.size(); ++i)
+				{
+					skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", manny_transforms[i]);
+				}
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4_cast(correction_rot) * node->transform));
 			}
-			else {
-				if (node->name == "SM_AssaultRifle_Magazine")
-					// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
-					// el grip no es necesario porque justo es la identity
-					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
-			}
+
 
 			//std::cout << "xd Node name: " << node->name << std::endl;
 
@@ -2767,11 +2765,52 @@ void update_objects() {
 	}
 }
 
+struct Entity {
+	Transform3D transform;
 
+	// TODO: Check this because I've seen enums used...
+	bool has_physics;
+	PhysicsBody physics_body;
+
+	// TODO: Check this because I've seen enums used...
+	bool has_animations;
+
+	// TODO: Check this because I've seen enums used...
+	bool has_model;
+};
+
+void find_player_model_aux(AssimpNode* node, AssimpNode** player_models, uint32_t** player_models_cnt) {
+	if (node->mesh) {
+		for (const auto& mesh : node->mesh->meshes) {
+			std::string name = node->name;
+			if (name == "SM_AssaultRifle_Magazine" ||
+				name == "SM_AssaultRifle_Casing" ||
+				name == "SK_AssaultRifle")
+			{
+				player_models[(**player_models_cnt)++] = node;
+			}
+		}
+	}
+	for (auto& child : node->children) {
+		find_player_model_aux(child, player_models, player_models_cnt);
+	}
+}
+
+AssimpNode** find_player_models(SceneGraph scene_graph, uint32_t* player_models_cnt) {
+	AssimpNode** player_models = new AssimpNode * [10];
+	for (auto& scene : scene_graph.nodes) {
+		for (auto node : scene.assimp_nodes) {
+			find_player_model_aux(node, player_models, &player_models_cnt);
+		}
+	}
+	return player_models;
+}
 
 
 
 int main() {
+
+#if 0
 	void* spa_data = Track::load_track((std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.csv").c_str());
 	if (!spa_data) {
 		return 0;
@@ -2780,12 +2819,11 @@ int main() {
 	Track::Track spa_track = Track::process_track2(spa_data);
 
 	AIM_INFO("spa_lines %d\n", sizeof(spa_track.left_lines) / sizeof(glm::vec3));
+#endif
 
 	input_state = new InputState{};
 	SceneGraph scene_graph{};
 	tinygltf::Model model = loadGLTFModel();
-
-
 
 	projectiles.reserve(100);
 
@@ -2828,8 +2866,6 @@ int main() {
 	// tell GLFW to capture our mouse
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-
-
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		AIM_FATAL("Failed to initialize GLAD");
@@ -2844,11 +2880,14 @@ int main() {
 #pragma endregion p2_physics_engine_init
 
 #pragma region model_loading
-create_primitive(primitive_box_vertices);
-uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec3(0.0f, -20.0f, -1.32f)));
+	create_primitive(primitive_box_vertices);
+	uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec3(0.0f, -20.0f, -1.32f)));
 
 
 	/*
+	// TODO ver esto en detalle. Creo que a lo que me estaba refiriendo es que cuando no haces animaciones te queda el assault rifle gigante 
+	en el 0,0,0 y la magazine enzartada tambien ahi en el medio del arma. Pero en el .blend la magazine quedaba bien. Me parece que al o que voy es
+	que como lso importe separados no existe este concepto de magazine ligada al bone hasta que, obviamente, hago el update de los bones
 	Explicacion:
 	La magazine queda en la posicion del arma pero no tiene nada que ver con los bones. La razon por la cual queda ahi es porque
 	tiene una transformacion y cuando se le aplica funciona. Ya que en este proyecto cuando exporte GLTF deje un offset en la magazine y ademas segun el dibujo que
@@ -2865,7 +2904,6 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 	AssimpNode assault_rifle, assault_rifle_magazine, assault_rifle_casing;
 
 
-
 	////////////////////// NEW /////////////////////////
 	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/SK_FP_Manny_Simple.fbx");
 	std::cout << "Finished loading Manny" << std::endl;
@@ -2876,32 +2914,19 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 	Animation danceAnimation(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_AssaultRifle_Reload.fbx", 0);
 	Animation mag_anim(std::string(AIM_ENGINE_ASSETS_PATH) + "models/Unreal/Animations/A_FP_WEP_AssaultRifle_Reload.fbx", 2);
 
-	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj");
-	LoadedCollider spa_collider_info{};
-	scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
+	//scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.obj");
+	//LoadedCollider spa_collider_info{};
+	//scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/3.obj", spa_collider_info);
 
-	scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj");
-	LoadedCollider porsche_collider_info{};
-	scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj", porsche_collider_info);
+	//scene_graph.loadAssimp(&assault_rifle, std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup.obj");
+	//LoadedCollider porsche_collider_info{};
+	//scene_graph.loadAssimpCollider(std::string(AIM_ENGINE_ASSETS_PATH) + "cars/porsche_911_gt3_cup-collider.obj", porsche_collider_info);
 	////////////////////// NEW /////////////////////////
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 	Animator animator(&danceAnimation);
 	Animator mag_animator(&mag_anim);
 	//Animator animator(&danceAnimation);
-
 
 
 	size_t vertexCount = 0, indexCount = 0;
@@ -2997,8 +3022,11 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 
 
 
+#if 0
+	//////////////////////////////////////// COLLISIONS FOR PORSCHE AND SPA /////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Prepare the vertex data for Jolt Physics MeshShape (VertexList is Array<Float3>)
+	// This is creating the collisions for the porsche
 	JPH::Array<JPH::Float3> jolt_vertices;
 	jolt_vertices.reserve(porsche_collider_info.vertices.size());
 
@@ -3051,8 +3079,10 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 
 	JPH::ShapeSettings::ShapeResult spa_shape_result = spa_shape->Create();
 	JPH::BodyID spa_body = physics_system.create_body(&Transform3D(glm::vec3(0.0)), spa_shape_result.Get(), true);
-	//////////////////////////////////////// //////////////////////////////////////// ////////////////////////////////////////
+	//////////////////////////////////////// COLLISIONS FOR PORSCHE AND SPA /////////////////////////////////////////////////
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#endif
 
 
 	std::vector<MeshBox> boxes = {
@@ -3412,6 +3442,88 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 	int bone_matrices_locations[32];
 
 	physics_system.inner_physics_system.OptimizeBroadPhase();
+
+#if 0
+	glBindVertexArray(mesh->vao);
+
+	skinning_shader->use();
+	skinning_shader->setMat4("model", glm::mat4(1.0f));
+
+	if (node->name == "SM_AssaultRifle_Magazine") {
+		skinning_shader->setMat4("model", glm::mat4(1.0f));
+	}
+
+	if (node->name == "SM_AssaultRifle_Casing") {
+		glm::mat4 base_model_mat =
+			glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 3.0f, 0.0f)) *
+			glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+
+		skinning_shader->setMat4("model", base_model_mat);
+	}
+
+	if (node->name == "SK_AssaultRifle") {
+		glUseProgram(skinning_shader_id);
+		skinning_shader->setMat4("model", glm::mat4(1.0f));
+	}
+	glUseProgram(skinning_shader_id);
+
+	if (node->name == "Vampire" || node->name == "Circle" || node->name == "SK_Manny_Arms")
+		glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+	else
+		glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+
+	if (node->name == "SK_Manny_Arms") {
+		glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::quat rot = qy * qx * qz; // Specify order of rotations here
+
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
+			* glm::mat4_cast(rot) // this line should be commented out when loading from gltf
+			* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+		skinning_shader->setMat4("model", model);
+		manny_world_transform = model * node->transform;
+		for (int i = 0; i < manny_transforms.size(); ++i)
+		{
+			skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", manny_transforms[i]);
+		}
+	}
+
+	glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &node->transform[0][0]);
+	if (node->name == "SK_AssaultRifle") {
+
+		AssimpBoneInfo grip = skeletons[2].m_BoneInfoMap["Grip"];
+		// TODO ahora yo estoy modificando el transform del nodo SK_AssaultRifle pero lo que deberia modificar es el root bone si es que es skinned. En este caso
+		// el grip bone. Esto necesita mas planning.  Unreal engine parece que lo mappea asi no mas, no al grip pero al nodo. aunque seguro se pueda las dos
+		assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
+		glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
+
+	}
+	else {
+		if (node->name == "SM_AssaultRifle_Magazine")
+			// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
+			// el grip no es necesario porque justo es la identity
+			glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
+	}
+
+	//std::cout << "xd Node name: " << node->name << std::endl;
+
+	// TODO ESTO DE CAMBIAR EL TRANSFORM DE ACA NO SIRVE, TIENE QUE EDITARSE A NIVEL PADRE DEL OBJETO. PORQUE PASA QUE PARA OBJETOS
+	// COMO EL PORSCHE, NO SE COMO SE LLAMA EL PADRE
+
+	glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+	glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+	glBindVertexArray(0);
+#endif
+
+	// find all AssimpNodes corresponding to the player model
+	uint32_t player_models_cnt = 0;
+	AssimpNode** player_models = find_player_models(scene_graph, &player_models_cnt);
+
+	if (player_models_cnt != 3) {
+		abort();
+	}
+
 	while (!glfwWindowShouldClose(window))
 	{
 		float currentFrame = static_cast<float>(glfwGetTime());
@@ -3540,7 +3652,7 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 
 			glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_SHORT, 0);
 			glBindVertexArray(0);
-	}
+		}
 #endif
 
 #if 1
@@ -3771,6 +3883,19 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 		*/
 
 		input_state->update();
+
+#if 0
+		for (uint32_t idx = 0; idx < player_models_cnt; idx++) {
+			auto meshes = player_models[idx]->mesh->meshes;
+			for (const auto& mesh : meshes) {
+				glBindVertexArray(mesh->vao);
+
+				skinning_shader.use();
+				skinning_shader.setMat4("model", glm::mat4(1.0f));
+			}
+		}
+#endif
+
 
 		//std::cout << "Printing node names: " << std::endl;
 		for (auto& scene : scene_graph.nodes) {
@@ -4129,7 +4254,7 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 
 		ImGui::DragFloat3("manny pos", glm::value_ptr(manny_pos), 0.1f);
 		ImGui::DragFloat3("manny rot", glm::value_ptr(manny_rot), 0.1f);
-		ImGui::DragFloat("manny scale", &manny_scale, 0.1f);
+		ImGui::DragFloat("manny scale", &manny_scale, 0.01f);
 		if (wireframe_mode) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		}
@@ -4185,7 +4310,7 @@ uint32_t my_obj = create_primitive_mesh(PrimitiveType::BOX, Transform3D(glm::vec
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-}
+	}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
