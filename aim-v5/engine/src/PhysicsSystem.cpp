@@ -70,6 +70,12 @@ void PhysicsSystem::set_debug_camera_pos(glm::vec3 pos) {
 	debugRenderer.mCameraPos = JPH::Vec3(pos.x, pos.y, pos.z);
 }
 
+struct SomeValue {
+	std::string name;
+	uint32_t age;
+};
+
+static SomeValue* my_value = new SomeValue;
 
 JPH::BodyID PhysicsSystem::create_body(aim::Components::Transform3D* transform, JPH::Ref<JPH::Shape> shape, bool is_static) {
 	auto settings = JPH::BodyCreationSettings(
@@ -80,13 +86,15 @@ JPH::BodyID PhysicsSystem::create_body(aim::Components::Transform3D* transform, 
 		is_static ? Layers::NON_MOVING : Layers::MOVING);
 
 	auto& body_interface = this->get_body_interface();
-	auto body_id = body_interface.CreateAndAddBody(
-		settings, is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+	auto body = body_interface.CreateBody(settings);
+	auto body_id = body->GetID();
+	body_interface.AddBody(body_id, is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
 
+	my_value->age = 322;
+	my_value->name = std::string("This is my name");
+	body->SetUserData((JPH::uint64)my_value);
 	body_to_transform_map.insert({ body_id, transform });
 
-	//	JPH::Body* body = this->get_body_interface().CreateBody(settings);
-	//	body->SetUserData(322);
 	//	this->get_body_interface().AddBody(body->GetID(), is_static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
 
 	return body_id;

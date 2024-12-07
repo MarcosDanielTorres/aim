@@ -26,9 +26,6 @@ int main() {
 // este SI anda
 #include "core/logger/logger.h"
 
-
-
-
 // imgui includes
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -109,8 +106,6 @@ static bool wireframe_mode = false;
 static bool physics_mode = false;
 static bool fps_mode = false;
 static float gravity = 2.2;
-
-
 
 
 
@@ -482,7 +477,6 @@ void createTransformsUBO(const std::vector<glm::mat4>& transforms, unsigned int 
 		glUnmapBuffer(GL_UNIFORM_BUFFER);
 	}
 }
-
 
 
 struct TestingRenderer {
@@ -2564,10 +2558,10 @@ void render_assimp_node(AssimpNode* node, Shader* skinning_shader, Shader* regul
 				glm::quat qz1 = glm::angleAxis(glm::radians(manny_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
 				glm::quat rot1 = qy1 * qx1 * qz1; // Specify order of rotations here
 
-
 				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
 					* glm::mat4_cast(rot1)
 					* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+
 				skinning_shader->setMat4("model", model);
 				manny_world_transform = model * glm::mat4_cast(correction_rot) * node->transform;
 				for (int i = 0; i < manny_transforms.size(); ++i)
@@ -2777,19 +2771,49 @@ struct Entity {
 
 	// TODO: Check this because I've seen enums used...
 	bool has_model;
+	uint32_t models_count;
+	AssimpNode** models;
 };
 
+// It appears to be that for `SK_Manny_Arms` the mesh information is repeated
+// Why?
+int manny_count = 0;
+int first_manny_index = 0;
 void find_player_model_aux(AssimpNode* node, AssimpNode** player_models, uint32_t** player_models_cnt) {
 	if (node->mesh) {
+		std::string name = node->name;
+		if (name == "SM_AssaultRifle_Magazine" ||
+			name == "SM_AssaultRifle_Casing" ||
+			name == "SK_AssaultRifle" || (name == "SK_Manny_Arms"))
+		{
+
+			player_models[(**player_models_cnt)++] = node;
+		}
+
+
+#if 0
 		for (const auto& mesh : node->mesh->meshes) {
-			std::string name = node->name;
 			if (name == "SM_AssaultRifle_Magazine" ||
 				name == "SM_AssaultRifle_Casing" ||
-				name == "SK_AssaultRifle")
+				name == "SK_AssaultRifle" || (name == "SK_Manny_Arms"))
 			{
-				player_models[(**player_models_cnt)++] = node;
+				if (name == "SK_Manny_Arms" && manny_count != 0) {
+					player_models[first_manny_index] = node;
+				}
+				else {
+					player_models[(**player_models_cnt)++] = node;
+				}
+			}
+
+			if (name == "SK_Manny_Arms") {
+				if (manny_count == 0) {
+					int copy = (**player_models_cnt);
+					first_manny_index = --copy;
+				}
+				manny_count++;
 			}
 		}
+#endif
 	}
 	for (auto& child : node->children) {
 		find_player_model_aux(child, player_models, player_models_cnt);
@@ -2808,8 +2832,342 @@ AssimpNode** find_player_models(SceneGraph scene_graph, uint32_t* player_models_
 
 
 
-int main() {
 
+// STUDY: Maybe I could create just a player that is of type Player and I don't need to have an entity with lots of fucking booleans
+// The only thing good about having player being an Entity is that I can do simulations easily. At least for now... I should investigate
+// all this shit about physics because its really coupling my fucking decisions with my ignorance on the matter
+void render_player(Entity* player, Shader* skinning_shader) {
+	for (uint32_t idx = 0; idx < player->models_count; idx++) {
+		AssimpNode* player_model = player->models[idx];
+		std::vector<AssimpPrimitive*> meshes = player_model->mesh->meshes;
+		std::string name = player_model->name;
+		auto node_transform = player_model->transform;
+		for (const auto& mesh : meshes) {
+			glBindVertexArray(mesh->vao);
+
+			skinning_shader->use();
+			skinning_shader->setMat4("model", glm::mat4(1.0f));
+
+			if (name == "SM_AssaultRifle_Magazine") {
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
+				// el grip no es necesario porque justo es la identity
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
+			}
+
+			if (name == "SM_AssaultRifle_Casing") {
+				glm::mat4 base_model_mat =
+					glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 3.0f, 0.0f)) *
+					glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+
+				skinning_shader->setMat4("model", base_model_mat);
+			}
+
+			if (name == "SK_AssaultRifle") {
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				AssimpBoneInfo _grip = skeletons[2].m_BoneInfoMap["Grip"];
+				// TODO ahora yo estoy modificando el transform del nodo SK_AssaultRifle pero lo que deberia modificar es el root bone si es que es skinned. En este caso
+				// el grip bone. Esto necesita mas planning.  Unreal engine parece que lo mappea asi no mas, no al grip pero al nodo. aunque seguro se pueda las dos
+				assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
+			}
+
+			if (name == "SK_Manny_Arms") {
+				// TODO: this should be embeded inside node->transform. So:
+				// if (node->name == "SK_Manny_Arms") node->transform = glm::mat4_cast(correction_rot) * node->transform;
+				glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat correction_rot = qy * qx * qz; // Specify order of rotations here
+
+				glm::quat qx1 = glm::angleAxis(glm::radians(manny_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
+				glm::quat qy1 = glm::angleAxis(glm::radians(manny_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
+				glm::quat qz1 = glm::angleAxis(glm::radians(manny_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
+				glm::quat rot1 = qy1 * qx1 * qz1; // Specify order of rotations here
+
+				glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
+					* glm::mat4_cast(rot1)
+					* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+
+				skinning_shader->setMat4("model", model);
+				manny_world_transform = model * glm::mat4_cast(correction_rot) * node_transform;
+				for (int i = 0; i < manny_transforms.size(); ++i)
+				{
+					skinning_shader->setMat4("jointMatrices[" + std::to_string(i) + "]", manny_transforms[i]);
+				}
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+				glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4_cast(correction_rot) * node_transform));
+			}
+
+
+			// TODO ESTO DE CAMBIAR EL TRANSFORM DE ACA NO SIRVE, TIENE QUE EDITARSE A NIVEL PADRE DEL OBJETO. PORQUE PASA QUE PARA OBJETOS
+			// COMO EL PORSCHE, NO SE COMO SE LLAMA EL PADRE
+
+			glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+			glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+			glBindVertexArray(0);
+			//break;
+			// NOTE: by brekaing here i can see that the SK_Manny_Arms is composed of effectively two meshes and
+			// this is not just two meshes duplicated as i initially thought. This theory only applied to SK_MannyArms as
+			// the other models only have one mesh
+
+			// INVESTIGATE:
+			// But... do i really need the two meshes for the skinning? Or I only need one of these meshes?
+			// In other words: the skinning information is present of both meshes or in only one? Or maybe I need both
+			// meshes's skinning information
+
+			// TODO: What I should do is: I can use ONLY the skinning info of the first mesh, but render both
+		}
+
+		// IMPORTANT los huesos que se cargan en las animaciones no estan en el scene graph. eso es importante
+
+
+		// Armature == SKEL_AssaultRifle == SK_AssaultRifle (Mesh)
+		// tengo que ver como es que se updatea el hueso con el mesh. esto funciona en las animaciones si
+		// Si muevo el grip todo se tiene que mover, entonces si aplico... TODO: mover el mesh y el grip lo mismo, el grip moverlo con un glm::translate etc
+	}
+}
+
+#if 0
+// Structure to represent our 4x4 matrix with column-major layout
+__declspec(align(32))
+typedef struct {
+	// Stored in column-major order internally
+	float data[16];
+} Mat4;
+
+// Helper function to create a matrix with readable row-major input
+// but store it in column-major format internally
+Mat4 mat4x4(float m00, float m01, float m02, float m03,
+	float m10, float m11, float m12, float m13,
+	float m20, float m21, float m22, float m23,
+	float m30, float m31, float m32, float m33) {
+	Mat4 result = {
+		.data = {
+			m00, m10, m20, m30,  // First column
+			m01, m11, m21, m31,  // Second column
+			m02, m12, m22, m32,  // Third column
+			m03, m13, m23, m33   // Fourth column
+		}
+	};
+	return result;
+}
+
+// Standard version without SIMD
+Mat4 mat4_mul_standard(const Mat4* a, const Mat4* b) {
+	Mat4 result = { 0 };  // Initialize to zero
+
+	// For each element in the result matrix
+	for (int col = 0; col < 4; col++) {
+		for (int row = 0; row < 4; row++) {
+			float sum = 0.0f;
+			// Compute dot product of row from A and column from B
+			for (int k = 0; k < 4; k++) {
+				// Note: matrices are stored column-major
+				sum += a->data[k * 4 + row] * b->data[col * 4 + k];
+			}
+			result.data[col * 4 + row] = sum;
+		}
+	}
+
+	return result;
+}
+
+// AVX version using 256-bit SIMD
+Mat4 mat4_mul_avx(const Mat4* a, const Mat4* b) {
+	Mat4 result;
+
+	// Load matrix A columns into 128-bit registers (we'll combine them as needed)
+	__m128 a0 = _mm_load_ps(&a->data[0]);
+	__m128 a1 = _mm_load_ps(&a->data[4]);
+	__m128 a2 = _mm_load_ps(&a->data[8]);
+	__m128 a3 = _mm_load_ps(&a->data[12]);
+
+	// Process two columns at once using AVX
+	for (int col = 0; col < 4; col += 2) {
+		// Load and broadcast elements from matrix B
+		__m256 b0 = _mm256_set_ps(
+			b->data[(col + 1) * 4 + 0], b->data[(col + 1) * 4 + 0],
+			b->data[(col + 1) * 4 + 0], b->data[(col + 1) * 4 + 0],
+			b->data[col * 4 + 0], b->data[col * 4 + 0],
+			b->data[col * 4 + 0], b->data[col * 4 + 0]
+		);
+
+		__m256 b1 = _mm256_set_ps(
+			b->data[(col + 1) * 4 + 1], b->data[(col + 1) * 4 + 1],
+			b->data[(col + 1) * 4 + 1], b->data[(col + 1) * 4 + 1],
+			b->data[col * 4 + 1], b->data[col * 4 + 1],
+			b->data[col * 4 + 1], b->data[col * 4 + 1]
+		);
+
+		__m256 b2 = _mm256_set_ps(
+			b->data[(col + 1) * 4 + 2], b->data[(col + 1) * 4 + 2],
+			b->data[(col + 1) * 4 + 2], b->data[(col + 1) * 4 + 2],
+			b->data[col * 4 + 2], b->data[col * 4 + 2],
+			b->data[col * 4 + 2], b->data[col * 4 + 2]
+		);
+
+		__m256 b3 = _mm256_set_ps(
+			b->data[(col + 1) * 4 + 3], b->data[(col + 1) * 4 + 3],
+			b->data[(col + 1) * 4 + 3], b->data[(col + 1) * 4 + 3],
+			b->data[col * 4 + 3], b->data[col * 4 + 3],
+			b->data[col * 4 + 3], b->data[col * 4 + 3]
+		);
+
+		// Combine A columns into 256-bit registers
+		__m256 va0 = _mm256_set_m128(a0, a0);
+		__m256 va1 = _mm256_set_m128(a1, a1);
+		__m256 va2 = _mm256_set_m128(a2, a2);
+		__m256 va3 = _mm256_set_m128(a3, a3);
+
+		// Compute two columns at once
+		__m256 col_result = _mm256_add_ps(
+			_mm256_add_ps(
+				_mm256_mul_ps(va0, b0),
+				_mm256_mul_ps(va1, b1)
+			),
+			_mm256_add_ps(
+				_mm256_mul_ps(va2, b2),
+				_mm256_mul_ps(va3, b3)
+			)
+		);
+
+		// Store results for two columns
+		_mm_store_ps(&result.data[col * 4], _mm256_extractf128_ps(col_result, 0));
+		_mm_store_ps(&result.data[(col + 1) * 4], _mm256_extractf128_ps(col_result, 1));
+	}
+
+	return result;
+}
+
+// Function to multiply two 4x4 matrices using SIMD 128-bit
+Mat4 mat4_mul_sse(const Mat4* a, const Mat4* b) {
+	Mat4 result;
+
+	// Load the columns of matrix A into registers
+	__m128 a0 = _mm_load_ps(&a->data[0]);  // First column of A
+	__m128 a1 = _mm_load_ps(&a->data[4]);  // Second column of A
+	__m128 a2 = _mm_load_ps(&a->data[8]);  // Third column of A
+	__m128 a3 = _mm_load_ps(&a->data[12]); // Fourth column of A
+
+	// Process each column of the result
+	for (int col = 0; col < 4; col++) {
+		// Broadcast each element of B's column to a vector
+		__m128 b0 = _mm_set1_ps(b->data[col * 4 + 0]);
+		__m128 b1 = _mm_set1_ps(b->data[col * 4 + 1]);
+		__m128 b2 = _mm_set1_ps(b->data[col * 4 + 2]);
+		__m128 b3 = _mm_set1_ps(b->data[col * 4 + 3]);
+
+		// Multiply and add using SIMD
+		__m128 col_result = _mm_add_ps(
+			_mm_add_ps(
+				_mm_mul_ps(a0, b0),
+				_mm_mul_ps(a1, b1)
+			),
+			_mm_add_ps(
+				_mm_mul_ps(a2, b2),
+				_mm_mul_ps(a3, b3)
+			)
+		);
+
+		// Store the result column
+		_mm_store_ps(&result.data[col * 4], col_result);
+	}
+
+	return result;
+	}
+
+// Helper function to print a matrix
+void print_matrix(const char* name, const Mat4* m) {
+	printf("%s:\n", name);
+	for (int row = 0; row < 4; row++) {
+		for (int col = 0; col < 4; col++) {
+			printf("%8.2f ", m->data[col * 4 + row]);
+		}
+		printf("\n");
+}
+	printf("\n");
+}
+
+double measure_time(Mat4(*func)(const Mat4*, const Mat4*), const Mat4* a, const Mat4* b, int iterations) {
+	clock_t start = clock();
+	Mat4 result;
+	for (int i = 0; i < iterations; i++) {
+		result = func(a, b);
+	}
+	clock_t end = clock();
+	return ((double)(end - start)) / CLOCKS_PER_SEC;
+}
+
+double measure_time_glm(const glm::mat4& a, const glm::mat4& b, int iterations) {
+	clock_t start = clock();
+	glm::mat4 result;
+	for (int i = 0; i < iterations; i++) {
+		result = a * b;
+	}
+	clock_t end = clock();
+	return ((double)(end - start)) / CLOCKS_PER_SEC;
+}
+#endif
+
+int main() {
+#if 0
+	Mat4 m1 = mat4x4(
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+		9, 10, 11, 12,
+		13, 14, 15, 16
+	);
+
+	Mat4 m2 = mat4x4(
+		17, 18, 19, 20,
+		21, 22, 23, 24,
+		25, 26, 27, 28,
+		29, 30, 31, 32
+	);
+	glm::mat4 glm_m1(
+		1, 5, 9, 13,
+		2, 6, 10, 14,
+		3, 7, 11, 15,
+		4, 8, 12, 16
+	);
+
+	glm::mat4 glm_m2(
+		17, 21, 25, 29,
+		18, 22, 26, 30,
+		19, 23, 27, 31,
+		20, 24, 28, 32
+	);
+
+	// Print all matrices
+	print_matrix("Matrix 1", &m1);
+	print_matrix("Matrix 2", &m2);
+
+	// Perform multiplications using all three methods
+	Mat4 result_standard = mat4_mul_standard(&m1, &m2);
+	Mat4 result_sse = mat4_mul_sse(&m1, &m2);
+	Mat4 result_avx = mat4_mul_avx(&m1, &m2);
+
+	// Print results
+	print_matrix("Result (Standard)", &result_standard);
+	print_matrix("Result (SSE)", &result_sse);
+	print_matrix("Result (AVX)", &result_avx);
+
+	// Performance comparison
+	int iterations = 1000000;
+	double time_standard = measure_time(mat4_mul_standard, &m1, &m2, iterations);
+	double time_sse = measure_time(mat4_mul_sse, &m1, &m2, iterations);
+	double time_avx = measure_time(mat4_mul_avx, &m1, &m2, iterations);
+	double time_glm = measure_time_glm(glm_m1, glm_m2, iterations);
+
+	printf("Performance comparison (%d iterations):\n", iterations);
+	printf("Standard: %.5f seconds\n", time_standard);
+	printf("SSE:      %.5f seconds (%.2fx speedup)\n", time_sse, time_standard / time_sse);
+	printf("AVX:      %.5f seconds (%.2fx speedup)\n", time_avx, time_standard / time_avx);
+	printf("GLM:      %.5f seconds (%.2fx speedup)\n", time_glm, time_standard / time_glm);
+
+	abort();
+#endif
 #if 0
 	void* spa_data = Track::load_track((std::string(AIM_ENGINE_ASSETS_PATH) + "tracks/spa.csv").c_str());
 	if (!spa_data) {
@@ -2885,7 +3243,7 @@ int main() {
 
 
 	/*
-	// TODO ver esto en detalle. Creo que a lo que me estaba refiriendo es que cuando no haces animaciones te queda el assault rifle gigante 
+	// TODO ver esto en detalle. Creo que a lo que me estaba refiriendo es que cuando no haces animaciones te queda el assault rifle gigante
 	en el 0,0,0 y la magazine enzartada tambien ahi en el medio del arma. Pero en el .blend la magazine quedaba bien. Me parece que al o que voy es
 	que como lso importe separados no existe este concepto de magazine ligada al bone hasta que, obviamente, hago el update de los bones
 	Explicacion:
@@ -3516,13 +3874,14 @@ int main() {
 	glBindVertexArray(0);
 #endif
 
+	Entity player{};
 	// find all AssimpNodes corresponding to the player model
-	uint32_t player_models_cnt = 0;
-	AssimpNode** player_models = find_player_models(scene_graph, &player_models_cnt);
+	player.has_animations = true;
+	player.has_model = true;
+	player.has_physics = true;
+	player.transform = Transform3D();
+	player.models = find_player_models(scene_graph, &player.models_count);
 
-	if (player_models_cnt != 3) {
-		abort();
-	}
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -3884,19 +4243,104 @@ int main() {
 
 		input_state->update();
 
+		render_player(&player, &skinning_shader);
 #if 0
+		// this is just a clone of `render_player(player_models, player_models_cnt, &skinning_shader)`
+
 		for (uint32_t idx = 0; idx < player_models_cnt; idx++) {
-			auto meshes = player_models[idx]->mesh->meshes;
+			AssimpNode* player_model = player_models[idx];
+			std::vector<AssimpPrimitive*> meshes = player_model->mesh->meshes;
+			std::string name = player_model->name;
+			auto node_transform = player_model->transform;
 			for (const auto& mesh : meshes) {
 				glBindVertexArray(mesh->vao);
 
 				skinning_shader.use();
 				skinning_shader.setMat4("model", glm::mat4(1.0f));
-			}
+
+				if (name == "SM_AssaultRifle_Magazine") {
+					glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+					// skel_assault_rifle_transform este creo que no hace falta en el calculo porque representaba la posicion en el mundo y eso ya esta dado por `assault_rifle_transform`
+					// el grip no es necesario porque justo es la identity
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &(assault_rifle_transform * mag_bone_transform)[0][0]);
 		}
+
+				if (name == "SM_AssaultRifle_Casing") {
+					glm::mat4 base_model_mat =
+						glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 3.0f, 0.0f)) *
+						glm::scale(glm::mat4(1.0f), glm::vec3(0.0125f));
+
+					skinning_shader.setMat4("model", base_model_mat);
+				}
+
+				if (name == "SK_AssaultRifle") {
+
+					glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+					AssimpBoneInfo _grip = skeletons[2].m_BoneInfoMap["Grip"];
+					// TODO ahora yo estoy modificando el transform del nodo SK_AssaultRifle pero lo que deberia modificar es el root bone si es que es skinned. En este caso
+					// el grip bone. Esto necesita mas planning.  Unreal engine parece que lo mappea asi no mas, no al grip pero al nodo. aunque seguro se pueda las dos
+					assault_rifle_transform = manny_world_transform * todas_las_putas_transforms;
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, &assault_rifle_transform[0][0]);
+				}
+
+				if (name == "SK_Manny_Arms") {
+					// TODO: this should be embeded inside node->transform. So:
+					// if (node->name == "SK_Manny_Arms") node->transform = glm::mat4_cast(correction_rot) * node->transform;
+					glm::quat qx = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+					glm::quat qy = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+					glm::quat qz = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+					glm::quat correction_rot = qy * qx * qz; // Specify order of rotations here
+
+					glm::quat qx1 = glm::angleAxis(glm::radians(manny_rot.x), glm::vec3(1.0f, 0.0f, 0.0f));
+					glm::quat qy1 = glm::angleAxis(glm::radians(manny_rot.y), glm::vec3(0.0f, 1.0f, 0.0f));
+					glm::quat qz1 = glm::angleAxis(glm::radians(manny_rot.z), glm::vec3(0.0f, 0.0f, 1.0f));
+					glm::quat rot1 = qy1 * qx1 * qz1; // Specify order of rotations here
+
+					glm::mat4 model = glm::translate(glm::mat4(1.0f), manny_pos)
+						* glm::mat4_cast(rot1)
+						* glm::scale(glm::mat4(1.0f), glm::vec3(manny_scale));
+
+					skinning_shader.setMat4("model", model);
+					manny_world_transform = model * glm::mat4_cast(correction_rot) * node_transform;
+					for (int i = 0; i < manny_transforms.size(); ++i)
+					{
+						skinning_shader.setMat4("jointMatrices[" + std::to_string(i) + "]", manny_transforms[i]);
+					}
+					glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 1);
+					glUniformMatrix4fv(glGetUniformLocation(skinning_shader_id, "nodeMatrix"), 1, GL_FALSE, glm::value_ptr(glm::mat4_cast(correction_rot) * node_transform));
+				}
+
+
+				// TODO ESTO DE CAMBIAR EL TRANSFORM DE ACA NO SIRVE, TIENE QUE EDITARSE A NIVEL PADRE DEL OBJETO. PORQUE PASA QUE PARA OBJETOS
+				// COMO EL PORSCHE, NO SE COMO SE LLAMA EL PADRE
+
+				glDrawElements(GL_TRIANGLES, mesh->index_count, GL_UNSIGNED_INT, 0);
+				glUniform1i(glGetUniformLocation(skinning_shader_id, "jointCount"), 0);
+				glBindVertexArray(0);
+				//break;
+				// NOTE: by brekaing here i can see that the SK_Manny_Arms is composed of effectively two meshes and
+				// this is not just two meshes duplicated as i initially thought. This theory only applied to SK_MannyArms as
+				// the other models only have one mesh
+
+				// INVESTIGATE:
+				// But... do i really need the two meshes for the skinning? Or I only need one of these meshes?
+				// In other words: the skinning information is present of both meshes or in only one? Or maybe I need both
+				// meshes's skinning information
+
+				// TODO: What I should do is: I can use ONLY the skinning info of the first mesh, but render both
+	}
+
+			// IMPORTANT los huesos que se cargan en las animaciones no estan en el scene graph. eso es importante
+
+
+			// Armature == SKEL_AssaultRifle == SK_AssaultRifle (Mesh)
+			// tengo que ver como es que se updatea el hueso con el mesh. esto funciona en las animaciones si
+			// Si muevo el grip todo se tiene que mover, entonces si aplico... TODO: mover el mesh y el grip lo mismo, el grip moverlo con un glm::translate etc
+	}
 #endif
 
 
+#if 0
 		//std::cout << "Printing node names: " << std::endl;
 		for (auto& scene : scene_graph.nodes) {
 			for (auto& node : scene.assimp_nodes) {
@@ -3905,6 +4349,7 @@ int main() {
 				render_assimp_node(node, &skinning_shader, &skel_shader);
 			}
 		}
+#endif
 
 
 #pragma endregion NODE_RENDERING
@@ -4310,7 +4755,7 @@ int main() {
 #pragma endregion render
 
 		glfwSwapBuffers(window);
-	}
+}
 
 
 	// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
